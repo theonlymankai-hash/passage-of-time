@@ -1,0 +1,2411 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Passage of Time</title>
+<meta name="description" content="A single oak in Lloyd Park, Croydon, photographed across a year and reconstructed as a 3D gaussian splat — looping seamlessly through the seasons.">
+<meta name="author" content="Mank Ai">
+<meta name="theme-color" content="#0a0d12">
+<link rel="canonical" href="https://tree.mankai.art/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Mank Ai">
+<meta property="og:url" content="https://tree.mankai.art/">
+<meta property="og:title" content="Passage of Time">
+<meta property="og:description" content="A single oak in Lloyd Park, Croydon, photographed across a year and reconstructed as a 3D gaussian splat — looping seamlessly through the seasons.">
+<meta property="og:image" content="https://tree.mankai.art/preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A gaussian-splat oak tree in autumn colour against a dark sky, titled Passage of Time.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Passage of Time">
+<meta name="twitter:description" content="A single oak in Lloyd Park, Croydon, photographed across a year and reconstructed as a 3D gaussian splat — looping seamlessly through the seasons.">
+<meta name="twitter:image" content="https://tree.mankai.art/preview.png">
+<!-- inline favicon: the same oak, half summer green / half autumn amber -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230a0d12'/%3E%3Cpath d='M32 14a16 16 0 0 1 0 32z' fill='%23c8802f'/%3E%3Cpath d='M32 14a16 16 0 0 0 0 32z' fill='%236f9c3e'/%3E%3Crect x='30' y='36' width='4' height='16' rx='1.5' fill='%235b4a38'/%3E%3C/svg%3E">
+<style>
+  body{margin:0;background:#0a0d12;overflow:hidden;font:13px system-ui,sans-serif;color:#cfd6df}
+  /* max-height + scroll: in a small embed the wrapped rows can outgrow the
+     window, and without this the lowest row is simply unreachable. */
+  #ui{position:fixed;left:0;right:0;bottom:0;padding:10px 16px 14px;background:linear-gradient(#0000,#000c);display:flex;flex-direction:column;gap:9px;max-height:52vh;overflow-y:auto;overflow-x:hidden;box-sizing:border-box}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  /* range inputs carry fixed inline widths; a flex item's default min-width
+     is its intrinsic size, so the last one CLIPPED at the edge instead of
+     shrinking or wrapping. Letting them shrink keeps every control reachable. */
+  .row input[type=range]{min-width:44px;flex-shrink:1}
+  /* narrow embeds (dashboard tile): tighten so more fits per row */
+  @media (max-width:1000px){
+    #ui{padding:8px 10px 10px;gap:6px}
+    .row{gap:6px}
+    button{padding:5px 8px;font-size:11px}
+    select{padding:5px 6px;font-size:11px}
+    .lbl{min-width:56px;font-size:11px}
+    #density{width:110px}
+  }
+  #season{flex:1;accent-color:#8bc34a}
+  #density{width:150px;accent-color:#6aa9d8}
+  .lbl{min-width:70px;text-align:center;font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:12px}
+  .sub{opacity:.6;font-size:11px;letter-spacing:.04em}
+  button{background:#1d2530;color:#cfd6df;border:1px solid #3a4656;border-radius:4px;padding:6px 11px;cursor:pointer;font-size:12px}
+  button:hover{background:#28323f}
+  select{background:#1d2530;color:#cfd6df;border:1px solid #3a4656;border-radius:4px;padding:6px 8px;font-size:12px}
+  button.on{background:#3a5a2e;border-color:#5d8a48}
+  #hint{position:fixed;top:10px;left:14px;opacity:.55}
+  /* the canvas is appended AFTER these in DOM order and became position:fixed
+     for the cover — without a z-index it painted on top of the control bar and
+     swallowed its clicks. Lift them, and keep them out of the cover: they
+     fade in when the reveal commits. */
+  #ui,#hint{z-index:20;transition:opacity .8s ease}
+  body.cover #ui,body.cover #hint{opacity:0;pointer-events:none}
+  /* phones: the export chain (record / PNG seq / resolution / mic / file pick)
+     is desktop studio work. Hiding it hands roughly a third of a 375px screen
+     back to the tree, which is what people came for. */
+  @media (max-width:700px){
+    #ui{max-height:44vh}
+    #rec,#seq,#recres,#mic,#loadmusic,#birdsfx{display:none}
+    #hint{font-size:10.5px;max-width:62vw;line-height:1.3}
+  }
+
+  /* ---- COVER ---------------------------------------------------------------
+     The wordmark you scroll away is drawn by the splats themselves (see
+     coverMorph in the shaders), so almost nothing here is the reveal — these
+     are the loading stand-in, a vignette that lifts with the scroll, and the
+     affordance. The DOM card exists only because the type has to be on screen
+     before 80MB of point cloud has arrived to draw it. */
+  canvas{position:fixed;top:0;left:0}     /* out of flow: the scroll runway must not push it */
+  #runway{display:none;height:250vh;width:1px}
+  body.cover{overflow-y:scroll;overflow-x:hidden}
+  body.cover #runway{display:block}
+  /* CLICK TO BEGIN: until the first click the page cannot scroll at all, so
+     the morph cannot start without the gesture that unlocks the audio. The
+     click arms it; scrolling then drives everything exactly as before. */
+  body.wait{overflow:hidden}
+  body.wait #cover{cursor:pointer}
+  /* no scrollbar gutter during the cover: the canvas is sized to innerWidth,
+     and a 15px reserved strip showed as a dead edge halfway through the
+     dissolve. The affordance says "scroll", so nothing is lost by hiding it. */
+  body.cover{scrollbar-width:none}
+  body.cover::-webkit-scrollbar{display:none}
+  #cover{position:fixed;inset:0;z-index:40}
+  #coverbase{position:absolute;inset:0;background:#080a0e;will-change:opacity}
+  #coveredge{position:absolute;inset:-2px;will-change:opacity;
+    background:radial-gradient(ellipse 78% 74% at 50% 46%,
+      #080a0e00 12%,#080a0e6b 44%,#080a0ed6 68%,#080a0e 88%)}
+  /* NO opacity transition here: stepReveal writes this every frame off the
+     scroll, and a lingering CSS ease kept the DOM card visible while the
+     splat copy was already fading in — the double-exposure ghost. */
+  #coverin{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;text-align:center;
+    padding:24px;box-sizing:border-box}
+  #cover h1{margin:0;font:300 clamp(24px,6.2vw,64px)/1.15 system-ui,sans-serif;
+    letter-spacing:.30em;text-transform:uppercase;color:#e6ecf4;text-indent:.30em}
+  #cover .who{font:500 clamp(10px,1.05vw,13px)/1 system-ui,sans-serif;letter-spacing:.30em;
+    text-transform:uppercase;color:#e6ecf4;opacity:.5}
+  #coverui{position:absolute;left:0;right:0;top:63%;display:flex;justify-content:center;
+    will-change:opacity}
+  #enter{display:none;flex-direction:column;align-items:center;gap:9px;
+    background:none;border:0;color:#cfd6df;opacity:.55;
+    font-size:11px;letter-spacing:.26em;text-transform:uppercase;cursor:pointer;padding:8px 14px;
+    transition:opacity .3s ease,transform .3s ease}
+  #enter:hover{opacity:1;background:none}
+  #enter.ready{display:flex}
+  /* wheel before the click: the affordance answers, nothing else moves */
+  #enter.nudge{opacity:1;transform:scale(1.1)}
+  /* the down-arrow belongs to the SCROLL phase — it appears once armed */
+  #enter svg{stroke:#8fb85e;animation:bob 2.6s ease-in-out infinite;visibility:hidden}
+  #enter.armed svg{visibility:visible}
+  @keyframes bob{0%,100%{transform:translateY(-2px);opacity:.5}50%{transform:translateY(4px);opacity:1}}
+
+  /* load readout lives OUTSIDE the cover: if someone starts scrolling before
+     the splats land, the reveal still runs and this still tells the truth. */
+  #loadline{position:fixed;left:0;right:0;bottom:34px;z-index:60;text-align:center;
+    pointer-events:none;transition:opacity .8s ease}
+  #loadline.done{opacity:0}
+  #bar{width:min(300px,68vw);height:2px;background:#1c2230;overflow:hidden;margin:0 auto 9px}
+  #barfill{height:100%;width:0;background:#6f9c3e;transition:width .25s linear}
+  #gstat{font-size:11.5px;letter-spacing:.14em;opacity:.55;min-height:16px}
+
+  /* only appears if the browser refused the score (a wheel is not a gesture) */
+  #sound{position:fixed;left:14px;top:34px;z-index:35;display:none;
+    background:#141a23cc;border:1px solid #43526a;color:#e6ecf4;border-radius:3px;
+    padding:7px 13px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;cursor:pointer}
+  /* if the browser refused the score, this is the ONE thing standing between
+     the piece and its music — it breathes so nobody misses it */
+  #sound.show{display:block;animation:pillcall 2.4s ease-in-out infinite}
+  @keyframes pillcall{0%,100%{border-color:#43526a;box-shadow:0 0 0 0 #8fb85e00}
+    50%{border-color:#8fb85e;box-shadow:0 0 16px 2px #8fb85e44}}
+
+  @media (prefers-reduced-motion:reduce){ #enter svg,#sound.show{animation:none} }
+
+  /* ---- INFO: quiet "i", quiet panel. The piece is the point. ---- */
+  #infobtn{position:fixed;top:9px;right:12px;z-index:30;width:24px;height:24px;
+    line-height:22px;text-align:center;border-radius:50%;border:1px solid #3a4656;
+    background:#151b24cc;color:#cfd6df;font-size:12px;font-style:italic;
+    cursor:pointer;opacity:.5;padding:0}
+  #infobtn:hover{opacity:1}
+  #info{position:fixed;top:42px;right:12px;z-index:30;width:min(330px,calc(100vw - 24px));
+    background:#0d1219f2;border:1px solid #2a3444;border-radius:5px;
+    padding:15px 17px;display:none;line-height:1.62;box-sizing:border-box}
+  #info.open{display:block}
+  #info h2{margin:0 0 9px;font:600 11px/1 system-ui,sans-serif;letter-spacing:.24em;
+    text-transform:uppercase;color:#e6ecf4}
+  #info p{margin:0 0 10px;font-size:12px;opacity:.78}
+  #info .credit{font-size:11.5px;opacity:.62;border-top:1px solid #222b39;padding-top:9px;margin:0}
+  #info a{color:#8fb85e;text-decoration:none;border-bottom:1px solid #8fb85e40}
+  #info a:hover{border-bottom-color:#8fb85e}
+</style>
+</head>
+<body>
+<div id="runway"></div>
+<div id="cover">
+  <div id="coverbase"></div>
+  <div id="coveredge"></div>
+  <!-- the DOM wordmark only stands in while the splats download; once they are
+       here the splats draw it themselves and this crossfades away -->
+  <div id="coverin">
+    <h1>Passage of Time</h1>
+    <div class="who">Mank Ai</div>
+  </div>
+  <div id="coverui">
+    <button id="enter" title="click to begin">
+      <span id="enterlbl">&#9654; begin</span>
+      <svg width="17" height="11" viewBox="0 0 17 11" fill="none" stroke-width="1.6"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M1.4 1.6 8.5 9 15.6 1.6"/></svg>
+    </button>
+  </div>
+</div>
+<div id="loadline"><div id="bar"><div id="barfill"></div></div><div id="gstat">loading&hellip;</div></div>
+<button id="sound">&#9834; sound</button>
+<button id="infobtn" title="about this piece">i</button>
+<div id="info">
+  <h2>Passage of Time</h2>
+  <p>A single oak in Lloyd Park, Croydon, photographed across a year and reconstructed
+     as a 3D gaussian splat. It loops seamlessly through the seasons.</p>
+  <p class="credit">
+    Music: <em>Married Life</em> from <em>Up</em> — composed by Michael Giacchino,
+    performed by <a href="https://www.youtube.com/@TomsMucenieks" target="_blank" rel="noopener">Toms Mucenieks</a>.<br><br>
+    <a href="https://mankai.art" target="_blank" rel="noopener">Mank Ai — mankai.art</a><br>
+    Sibling work: <a href="https://eclipse.mankai.art" target="_blank" rel="noopener">eclipse.mankai.art</a>
+  </p>
+</div>
+<div id="hint">drag orbit &middot; wheel zoom &middot; space = play</div>
+<div id="ui">
+  <div class="row">
+    <button id="play">▶ Play</button>
+    <button id="stop">■ Stop</button>
+    <input id="season" type="range" min="0" max="5" step="0.001" value="2">
+    <div class="lbl" id="lbl">summer</div>
+  </div>
+  <div class="row">
+    <button class="jump" data-t="0.45">Dawn</button>
+    <button class="jump" data-t="1.5">Spring</button>
+    <button class="jump" data-t="2.4">Summer</button>
+    <button class="jump" data-t="3.25">Autumn</button>
+    <button class="jump" data-t="4.6">Winter</button>
+    <span class="sub">density</span>
+    <input id="density" type="range" min="0.15" max="1" step="0.01" value="1">
+    <button id="mousemode" title="zoom anchor: centre / cursor">🖱 centre</button>
+    <button id="home" title="return camera home (H)">⌂ Home</button>
+    <button id="orbit">Orbit</button>
+    <input id="spinspeed" type="range" min="-8" max="8" step="0.1" value="0.7" title="spin speed" style="width:110px;accent-color:#8bc34a">
+    <button id="looplock" title="lock the camera to whole turns per season cycle — seamless projection loop">∞ Loop</button>
+    <select id="looprevs" title="camera turns per cycle" style="display:none">
+      <option value="1" selected>1 turn</option>
+      <option value="2">2 turns</option>
+      <option value="3">3 turns</option>
+      <option value="-1">1 turn ↺</option>
+      <option value="0">no turn</option>
+    </select>
+    <span class="sub">wind</span>
+    <input id="windamt" type="range" min="0" max="4" step="0.05" value="1" title="wind strength" style="width:110px;accent-color:#7dd3fc">
+    <span class="sub" id="windread" style="min-width:34px">1.0</span>
+    <span class="sub">black</span>
+    <input id="liftamt" type="range" min="0" max="0.35" step="0.005" value="0.10" title="black level" style="width:90px;accent-color:#d8b4fe">
+    <span class="sub">rain</span>
+    <input id="rainamt" type="range" min="0" max="2" step="0.05" value="0.55" title="rain density" style="width:100px;accent-color:#93c5fd">
+    <button id="live" title="match the real weather at Lloyd Park right now">🌤 Now</button>
+    <span class="sub" id="livereport"></span>
+    <select id="stormwhen" title="when the storm happens">
+      <option value="spring">⛈ spring</option>
+      <option value="summer" selected>⛈ summer</option>
+      <option value="off">⛈ off</option>
+    </select>
+    <button id="pacespin" title="spin speed follows the music's tempo">♪ pace</button>
+  </div>
+  <div class="row">
+    <button id="loadmusic">♪ Load track</button>
+    <input id="file" type="file" accept="audio/*" style="display:none">
+    <button id="aplay" disabled>▶</button>
+    <input id="apos" type="range" min="0" max="1" step="0.0001" value="0" style="flex:1;accent-color:#c88">
+    <span class="sub" id="atime">—</span>
+    <button id="mute" title="mute audio (visuals keep reacting)">🔊</button>
+    <input id="vol" type="range" min="0" max="1" step="0.01" value="0.85" title="volume" style="width:80px;accent-color:#c88">
+    <button id="mic">Mic</button>
+    <button id="birdsfx" class="on" title="soft calls when the birds arrive">🐦 calls</button>
+    <button id="react" class="on" title="let the music drive the visuals">♫ react</button>
+    <select id="choreo" title="choreography style">
+      <option value="">🎼 free</option>
+    </select>
+    <select id="recres" title="export resolution">
+      <option value="0">win</option>
+      <option value="1920">1080p</option>
+      <option value="2560" selected>1440p</option>
+      <option value="3840">4K</option>
+    </select>
+    <button id="rec">● Record</button>
+    <button id="seq" title="lossless PNG frame sequence for Premiere / ProRes">⬛ PNG seq</button>
+    <span class="sub" id="track"></span>
+  </div>
+</div>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from './vendor/OrbitControls.js';
+
+const scene=new THREE.Scene();
+scene.fog=new THREE.FogExp2(0x11151c,0.028);
+const camera=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,0.05,200);
+camera.position.set(7,3.2,9);
+// preserveDrawingBuffer is required for captureStream() to record cleanly
+const renderer=new THREE.WebGLRenderer({antialias:false,preserveDrawingBuffer:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+document.body.appendChild(renderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+controls.dampingFactor=0.06;          // silkier rotation too
+controls.enableZoom=false;            // wheel handled below — smooth dolly
+// ...except on touch, where there IS no wheel: without this a phone can orbit
+// but never get closer, which reads as a broken viewer.
+if(matchMedia('(hover:none) and (pointer:coarse)').matches){
+  controls.enableZoom=true; controls.zoomSpeed=0.8;
+  controls.minDistance=1.2; controls.maxDistance=45;   // same clamps as the wheel dolly
+}
+
+// ---- CINEMATIC ZOOM: wheel sets a target, camera glides toward it --------
+// Exponential approach = the sci-fi dolly feel: fast response, soft landing.
+// Zooming in pulls the orbit target toward the point under the cursor.
+let zoomTarget=null, zoomToCursor=false;
+const ANCHOR=new THREE.Vector3();      // where we orbit — explicit, never drifts
+const ANCHOR_HOME=new THREE.Vector3();
+const ANCHOR_MAX=11.0;                 // never wander off to the neighbouring trees
+function setAnchor(p){
+  ANCHOR.copy(p);
+  const d=ANCHOR.clone().sub(ANCHOR_HOME); d.y=0;
+  if(d.length()>ANCHOR_MAX){ d.setLength(ANCHOR_MAX); ANCHOR.set(ANCHOR_HOME.x+d.x,ANCHOR.y,ANCHOR_HOME.z+d.z); }
+}
+const mmBtn=document.getElementById('mousemode');
+mmBtn.onclick=()=>{
+  zoomToCursor=!zoomToCursor;
+  mmBtn.classList.toggle('on',zoomToCursor);
+  mmBtn.textContent=zoomToCursor?'🖱 cursor':'🖱 centre';
+};
+const mouseNDC=new THREE.Vector2();
+addEventListener('mousemove',e=>{
+  mouseNDC.set((e.clientX/innerWidth)*2-1,-(e.clientY/innerHeight)*2+1);
+});
+renderer.domElement.addEventListener('pointerdown',()=>{homeGlide=0;});
+// (dblclick fires after pointerdown, so tgtGlide survives its own click)
+let zoomAnchor=null, zoomAnchorAt=0;
+// The cover is a FIRST-LOAD experience: until it commits, the wheel belongs to
+// the page scroll (the cover overlays the canvas anyway) and this handler
+// stands down. At commit the same gesture that finished the reveal is usually
+// still ticking — those trailing ticks read as "zoom straight back out", so
+// they are swallowed until the hand pauses. After that the wheel is exactly
+// the dolly it always was; no reveal state is consulted again.
+let wheelHold=false, lastWheelT=0, avgDt=0.016;
+renderer.domElement.addEventListener('wheel',e=>{
+  if(!REVEAL.committed) return;          // pre-commit: page scroll owns the wheel
+  e.preventDefault();
+  // e.timeStamp, not performance.now(): on a slow frame queued wheel events
+  // run in bursts and handler-time gaps lie about the gesture. The event's
+  // own timestamp measures the hand. The pause that ends the gesture scales
+  // with frame time too — browsers coalesce wheel delivery to the frame, so
+  // on a struggling GPU even a continuous scroll arrives in slow beats.
+  const now=e.timeStamp||performance.now();
+  if(wheelHold){
+    if(now-lastWheelT<Math.max(350,avgDt*2500)){ lastWheelT=now; return; }
+    wheelHold=false;
+  }
+  lastWheelT=now;
+  const cur=zoomTarget??camera.position.distanceTo(controls.target);
+  zoomTarget=Math.min(45,Math.max(1.2,cur*Math.pow(1.0014,e.deltaY)));
+  // Resolve the anchor once per gesture (not per frame): the nearest REAL
+  // surface under the cursor. Pointing at empty sky returns null and the
+  // orbit centre is left alone — that drift was making orbit spin about
+  // a point floating in mid-air.
+  if(zoomToCursor && e.deltaY<0 && now-zoomAnchorAt>260){
+    zoomAnchor=pickPoint(e.clientX,e.clientY,2.2);
+    zoomAnchorAt=now;
+  }
+  if(e.deltaY>0) zoomAnchor=null;          // zooming out never re-anchors
+},{passive:false});
+// ---- HOME: glide back to the framing shot, same cinematic easing ---------
+// Home restores FRAMING (distance + height + centre), not a compass bearing.
+// Lerping to a fixed position fought autoRotate — the distance test never
+// converged, so the glide ran forever and orbit looked frozen.
+let homeGlide=0;                       // seconds remaining, not a flag
+const HOME_POS=new THREE.Vector3(), HOME_TGT=new THREE.Vector3();
+let HOME_DIST=10, HOME_PHI=1.2;
+function goHome(){ homeGlide=1.4; zoomTarget=null; setAnchor(ANCHOR_HOME); }
+document.getElementById('home').onclick=goHome;
+addEventListener('keydown',e=>{ if(e.code==='KeyH') goHome(); });
+
+// ---- POINT PICK: nearest real surface along a screen ray -----------------
+// Strided search of the point clouds — no BVH needed. Returns null if the
+// ray hits nothing, which is what keeps the orbit centre off empty sky.
+function pickPoint(cx,cy,coneDeg){
+  const r=renderer.domElement.getBoundingClientRect();
+  const nd=new THREE.Vector2(((cx-r.left)/r.width)*2-1,-((cy-r.top)/r.height)*2+1);
+  const rc=new THREE.Raycaster(); rc.setFromCamera(nd,camera);
+  const ro=rc.ray.origin, rd=rc.ray.direction;
+  const tanA=Math.tan(coneDeg*Math.PI/180);
+  // FIRST SURFACE along the ray, not "closest to the ray line". Scoring by
+  // perpendicular distance let a background tree sitting dead-centre beat the
+  // nearer oak — which is how double-click ended up orbiting the neighbours.
+  let bestT=1e9;
+  for(const arr of PICK){
+    for(let i=0;i<arr.length;i+=12){
+      const px=arr[i]-ro.x, py=arr[i+1]-ro.y, pz=arr[i+2]-ro.z;
+      const t=px*rd.x+py*rd.y+pz*rd.z;
+      if(t<0.4||t>=bestT) continue;
+      const dx=px-rd.x*t, dy=py-rd.y*t, dz=pz-rd.z*t;
+      const rad=t*tanA;                       // cone widens with depth = screen-space
+      if(dx*dx+dy*dy+dz*dz>rad*rad) continue;
+      bestT=t;
+    }
+  }
+  if(bestT>=1e9) return null;
+  // average the little cluster at that depth so one stray point can't win
+  let sx=0,sy=0,sz=0,n=0;
+  for(const arr of PICK){
+    for(let i=0;i<arr.length;i+=12){
+      const px=arr[i]-ro.x, py=arr[i+1]-ro.y, pz=arr[i+2]-ro.z;
+      const t=px*rd.x+py*rd.y+pz*rd.z;
+      if(t<bestT-0.15||t>bestT+0.6) continue;
+      const dx=px-rd.x*t, dy=py-rd.y*t, dz=pz-rd.z*t;
+      const rad=t*tanA;
+      if(dx*dx+dy*dy+dz*dz>rad*rad) continue;
+      sx+=arr[i]; sy+=arr[i+1]; sz+=arr[i+2]; n++;
+    }
+  }
+  return n? new THREE.Vector3(sx/n,sy/n,sz/n)
+          : new THREE.Vector3(ro.x+rd.x*bestT,ro.y+rd.y*bestT,ro.z+rd.z*bestT);
+}
+
+// ---- DOUBLE-CLICK: set orbit centre to the point under the cursor --------
+let tgtGlide=null;
+renderer.domElement.addEventListener('dblclick',e=>{
+  const p=pickPoint(e.clientX,e.clientY,1.6);
+  if(p){ setAnchor(p); homeGlide=0; }
+});
+
+controls.addEventListener('end',()=>{ setAnchor(controls.target); });
+const _ray=new THREE.Raycaster();
+function smoothZoom(dt){
+  if(zoomTarget===null) return;
+  const cur=camera.position.distanceTo(controls.target);
+  const nd=cur+(zoomTarget-cur)*(1-Math.exp(-dt*4.5));
+  const f=nd/cur;
+  if(Math.abs(nd-zoomTarget)<0.002) zoomTarget=zoomTarget; // keep gliding
+  // dolly
+  camera.position.sub(controls.target).multiplyScalar(f).add(controls.target);
+  // zooming in re-anchors onto the picked surface (cursor mode only)
+  if(f<1&&zoomToCursor&&zoomAnchor){ setAnchor(zoomAnchor); zoomAnchor=null; }
+}
+
+// ---- COVER / SCROLL REVEAL ----------------------------------------------
+// The cover is scrubbed, not triggered: one 0..1 value derived from scroll
+// offset drives every layer, applied per frame. Scroll a little and it
+// dissolves a little; stop and it holds; scroll back and it returns. There is
+// no threshold and no one-shot transition anywhere in here.
+//
+// It is wired up BEFORE the 80MB of splats are awaited on purpose — someone
+// who starts scrolling during the download must not be ignored. The reveal
+// runs, the load readout keeps reporting, and the tree arrives when it arrives.
+const cover=document.getElementById('cover');
+const coverBase=document.getElementById('coverbase');
+const coverEdge=document.getElementById('coveredge');
+const coverIn=document.getElementById('coverin');
+const coverUI=document.getElementById('coverui');
+const enterBtn=document.getElementById('enter');
+const loadline=document.getElementById('loadline');
+const barfill=document.getElementById('barfill'), gstat=document.getElementById('gstat');
+const REDUCE=matchMedia('(prefers-reduced-motion:reduce)').matches;
+const REVEAL={raw:0,p:0,armed:false,committed:false,ready:false,onCommit:null,scene:false,
+              densify:1,fly:0,letters:false,letterA:0};
+// wordmark plane, rebuilt each frame from the camera so the type is screen-locked
+const LO=new THREE.Vector3(), LR=new THREE.Vector3(), LU=new THREE.Vector3();
+const LETTER_D=5.6;        // world units in front of the camera
+const LETTER_PX=2.7;       // on-screen size of one type particle, at dpr 1
+let PART=-1, LBOX=null;    // participation threshold + wordmark box, set at ready
+// scene extras (birds, rain, bolts) that have no business being on screen
+// while the cover is still type — they were drifting about behind the letters
+const COVER_HIDE=[];
+document.body.classList.add('cover','wait');   // wait = held until the BEGIN click
+
+const ease=x=>x<=0?0:x>=1?1:x*x*(3-2*x);                 // smoothstep
+const band=(x,a,b)=>ease((x-a)/(b-a));                   // ramp between two points
+// cached, and only recomputed when the WIDTH changes: on phones the URL bar
+// retracting during the very gesture we are tracking changes innerHeight, and
+// recomputing mid-scrub made the dissolve jump.
+let RD=Math.max(320,innerHeight*1.35), RW=innerWidth;
+function revealDist(){ return RD; }
+if(history.scrollRestoration) history.scrollRestoration='manual';
+scrollTo(0,0);
+
+const TOUCHY=matchMedia('(hover:none) and (pointer:coarse)').matches;
+function readScroll(){
+  if(REDUCE||REVEAL.committed||!REVEAL.armed) return;
+  const sy=scrollY||document.documentElement.scrollTop;
+  // Clamp to the REAL scrollable extent, not just the cached runway length.
+  // A height-only resize (DevTools docking, dragging the window shorter)
+  // used to leave RD stale and LONGER than the page could actually scroll —
+  // raw then topped out below 1 and the commit could never fire: the tree
+  // stood fully formed at the bottom of the runway and "nothing happened".
+  const max=Math.min(revealDist(),
+    Math.max(1,document.documentElement.scrollHeight-innerHeight));
+  REVEAL.raw=Math.min(1,Math.max(0,sy/max));
+}
+addEventListener('scroll',readScroll,{passive:true});
+let _remeasure=0;
+addEventListener('resize',()=>{
+  // desktop: track BOTH dimensions. The width-only guard exists for phones,
+  // where the URL bar retracting mid-gesture changes innerHeight and a
+  // recompute made the scrub jump.
+  if(innerWidth!==RW||!TOUCHY){ RW=innerWidth; RD=Math.max(320,innerHeight*1.35); }
+  readScroll();
+  // resized (or browser zoom / DPR change — those fire resize too) while the
+  // wordmark still matters: re-measure the DOM card and rebuild the letter
+  // targets against it, debounced off the resize stream. The card is only
+  // opacity-faded, never display:none, so its rects stay measurable.
+  if(REVEAL.letters&&!REVEAL.committed){
+    clearTimeout(_remeasure);
+    _remeasure=setTimeout(()=>{
+      if(REVEAL.committed) return;
+      try{ if(buildWordmark()) updateLetterPlane(); }catch(e){}
+    },240);
+  }
+});
+
+// per-frame: light exponential smoothing (~55ms) so trackpad steps don't
+// stutter, loose enough that it still tracks a finger.
+// ---- STAGES (tuned by eye; all of them read off the one value) ------------
+//  0.00-0.05   DOM wordmark alone, crisp. The splat copy is NOT shown yet:
+//              both at once read as a double exposure wherever registration
+//              was a few px off, so the handoff is sequenced, never layered.
+//  0.055-0.105 the splat copy fades in where the DOM card just was
+//  0.15-0.80   flight: departure peels the word left to right, arrival
+//              funnels — trunk lands first, outer canopy last (coverMorph)
+//  0.16-0.40   meanwhile the held type loosens slightly and thins hard
+//  0.72-1.00   the remaining 92% of the cloud fades in behind them
+function stepReveal(dt){
+  if(REVEAL.committed||REDUCE) return;   // reduced motion never animates any of it
+  REVEAL.p+=(REVEAL.raw-REVEAL.p)*(1-Math.exp(-dt/0.055));
+  const p=REVEAL.p;
+  const fly=band(p,0.15,0.80);          // 0 = type, 1 = home
+  REVEAL.densify=band(p,0.72,1.0);
+  REVEAL.fly=fly;
+  coverUI.style.opacity=1-band(p,0.0,0.16);
+  coverEdge.style.opacity=(1-band(p,0.26,0.96))*(REVEAL.letters?0.85:1);
+  if(REVEAL.letters){
+    // sequenced handoff, scrubbed both ways: the DOM card is gone BEFORE the
+    // splat copy is distinguishable — imperfect registration can never
+    // double-expose. Scroll back and the DOM card returns the same way.
+    coverIn.style.opacity=1-band(p,0.015,0.050);
+    coverBase.style.opacity=1-band(p,0.025,0.30);
+    REVEAL.letterA=band(p,0.055,0.105);
+  }else{                                // still downloading: DOM card carries it
+    coverIn.style.opacity=1-band(p,0.02,0.46);
+    coverBase.style.opacity=1-band(p,0.06,0.62);
+  }
+  windUpdate(dt,p);                     // the flight's air, gusting with the scrub
+  // everything below needs the scene, which does not exist until the splats
+  // land — before that this tick is only keeping the cover honest.
+  if(!REVEAL.scene) return;
+  skyMat.uniforms.uDark.value=REVEAL.letters?1-band(p,0.18,0.86):0;
+  // ground disc + birds + weather: they arrive with the tree, not before it
+  const extras=!REVEAL.letters||p>0.46;
+  for(const o of COVER_HIDE) o.visible=extras;
+  // the splats' own share of the reveal. Scatter is specified in SCREEN pixels
+  // and converted — in world units it wrecked thin type at one viewport size
+  // and did nothing at another.
+  if(REVEAL.letters) updateLetterPlane();
+  const ls=REVEAL.lscale||1;
+  // tighter than it was: a wide scatter plus full alpha was a dot-blob that
+  // swallowed the word at mid-scroll
+  const loose=band(p,0.16,0.40)*(1-band(p,0.55,0.90))*2.5*ls*(REVEAL.wpp||0.007);
+  // the type also THINS as it loosens — hard, so the mid-stage stays grain
+  const typeA=REVEAL.letterA*(1-band(p,0.18,0.44)*0.78);
+  for(const m of mats){
+    const u=m.uniforms;
+    u.uFly.value=REVEAL.letters?fly:1;
+    // small viewports carry fewer type particles, but the full slice is let
+    // back in during the flight so the sparse tree that lands is the same
+    // everywhere — otherwise a phone assembled a ghost of one
+    u.uPart.value=REVEAL.letters
+      ?PART*(Math.max(0.10,ls*ls)+(1-Math.max(0.10,ls*ls))*band(p,0.28,0.55)):-1;
+    u.uLoose.value=loose;
+    u.uArc.value=0.55;
+    u.uLetterA.value=typeA;
+    u.uLO.value.copy(LO); u.uLR.value.copy(LR); u.uLU.value.copy(LU);
+    u.uLetterPx.value=LETTER_PX*Math.max(0.62,ls)*Math.min(devicePixelRatio,2);
+  }
+  // the camera settles in with it — the reveal is a move the piece makes,
+  // not a page transition laid over the top of it
+  if(HOME_DIST){
+    const off=camera.position.clone().sub(controls.target);
+    off.setLength(HOME_DIST*(1+0.34*(1-ease(p))));
+    camera.position.copy(controls.target).add(off);
+  }
+  // >0.99, not >=1: an eased programmatic scroll lands on a subpixel offset,
+  // so an exact test left the cover invisible but never committed.
+  if(p>0.99&&REVEAL.raw>0.99) commitReveal();
+}
+// WATCHDOG: bottom of the runway MUST equal commit. If raw sits pinned at
+// the end for a quarter second and the smoothed path somehow hasn't fired
+// (frame hiccups, any future regression in the thresholds), fire anyway —
+// the show starting is more important than the last 1% of the ease.
+setInterval(()=>{
+  if(REVEAL.committed||REDUCE) return;
+  if(REVEAL.raw>0.995){
+    REVEAL.endT=REVEAL.endT||performance.now();
+    if(performance.now()-REVEAL.endT>250&&REVEAL.scene) commitReveal();
+  } else REVEAL.endT=0;
+},120);
+
+// The letters live on a billboard plane a fixed distance in front of the
+// camera, sized in CSS pixels so they stay registered with the DOM card they
+// take over from — and so they hold their place while the camera eases in.
+const _d=new THREE.Vector3(), _r=new THREE.Vector3(), _u=new THREE.Vector3();
+function updateLetterPlane(){
+  if(!LBOX) return;
+  camera.getWorldDirection(_d);
+  _r.crossVectors(_d,camera.up).normalize();
+  _u.crossVectors(_r,_d).normalize();
+  const wpp=2*LETTER_D*Math.tan(camera.fov*Math.PI/360)/innerHeight;  // world per CSS px
+  REVEAL.wpp=wpp;
+  // How big is the wordmark right now, against the desktop reference it was
+  // tuned at? A phone's wordmark is a ninth of the area, and pouring the same
+  // 271k particles into it turned the type into a solid white slab — so the
+  // participating slice, the particle size and the scatter all scale with it.
+  const boxW=LBOX.wFrac*innerWidth;
+  REVEAL.lscale=Math.min(1,boxW/980);
+  const halfW=boxW*0.5*wpp;
+  // the title SINKS slightly as the material rises out of it — a modest
+  // downward drift of the remaining letterforms across the flight
+  const sink=band(REVEAL.p,0.15,0.75)*30;   // CSS px, subtle by design
+  LO.copy(camera.position).addScaledVector(_d,LETTER_D)
+    .addScaledVector(_r,(LBOX.cxFrac-0.5)*innerWidth*wpp)
+    .addScaledVector(_u,-((LBOX.cyFrac-0.5)*innerHeight+sink)*wpp);
+  LR.copy(_r).multiplyScalar(halfW);
+  LU.copy(_u).multiplyScalar(halfW*LBOX.aspect);
+}
+
+function commitReveal(){
+  if(REVEAL.committed) return;
+  REVEAL.committed=true;
+  REVEAL.p=REVEAL.raw=1; REVEAL.fly=1; REVEAL.densify=1;
+  if(REVEAL.scene){
+    for(const m of mats){ m.uniforms.uFly.value=1; m.uniforms.uPart.value=-1;
+                          m.uniforms.uLoose.value=0; }
+    skyMat.uniforms.uDark.value=0;
+    for(const o of COVER_HIDE) o.visible=true;
+  }
+  cover.style.display='none';
+  // hand the page back and UNHOOK the reveal completely: no runway, no
+  // scroller, no scroll->progress mapping. From here the piece behaves as if
+  // the cover never existed — drag orbits, wheel is the original dolly. The
+  // trailing ticks of the commit gesture are held off the dolly (see the
+  // wheel handler) so the camera is never yanked back out.
+  document.body.classList.remove('cover');
+  removeEventListener('scroll',readScroll);
+  wheelHold=true; lastWheelT=performance.now();
+  scrollTo(0,0);
+  // the wind breathes out as the score comes in
+  if(windSfx) windSfx.gain.gain.setTargetAtTime(0,windSfx.ctx.currentTime,0.8);
+  if(REVEAL.onCommit) REVEAL.onCommit();
+}
+
+// ---- WIND: the flight has air --------------------------------------------
+// Procedural, no sample (windSfx.src could be swapped for one later): brown
+// noise looped through two slowly-drifting bandpasses + a lowpass — the
+// classic two-band recipe that reads as wind immediately. Level follows the
+// reveal (silent at rest, rising through scatter and flight, gone as the
+// tree completes) and GUSTS with scroll velocity: scrub fast and the air
+// moves harder, stop and it settles to a low breath. Routed through
+// masterGain so the volume slider and mute own it like everything else.
+// Created lazily on the first real gesture — a wheel alone may not unlock
+// audio in Chrome, and the correct fallback is silence, not blocking.
+let windSfx=null, windSfxVel=0, windSfxRaw=0;
+function windStart(){
+  if(windSfx||REDUCE) return;
+  try{
+    const ctx=ensureCtx();
+    if(ctx.state!=='running') return;              // still locked: try next gesture
+    const len=2*ctx.sampleRate;
+    const buf=ctx.createBuffer(1,len,ctx.sampleRate);
+    const ch=buf.getChannelData(0);
+    let br=0;                                       // brown-ish: integrate white
+    for(let i=0;i<len;i++){ br=br*0.98+(Math.random()*2-1)*0.05; ch[i]=br*3.2; }
+    const src=ctx.createBufferSource(); src.buffer=buf; src.loop=true;
+    const mkBand=(f,lfoF,depth)=>{
+      const bp=ctx.createBiquadFilter(); bp.type='bandpass';
+      bp.frequency.value=f; bp.Q.value=1.1;
+      const lfo=ctx.createOscillator(); lfo.frequency.value=lfoF;
+      const lg=ctx.createGain(); lg.gain.value=depth;
+      lfo.connect(lg); lg.connect(bp.frequency); lfo.start();
+      return bp;
+    };
+    const b1=mkBand(240,0.11,90), b2=mkBand(640,0.17,220);
+    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1300;
+    const g=ctx.createGain(); g.gain.value=0;
+    src.connect(b1); src.connect(b2); b1.connect(lp); b2.connect(lp);
+    lp.connect(g); g.connect(masterGain);
+    src.start();
+    windSfx={gain:g,ctx,src};
+  }catch(e){}
+}
+for(const ev of ['pointerdown','keydown','touchstart'])
+  addEventListener(ev,windStart,{passive:true});
+function windUpdate(dt,p){
+  // gust follows how fast the hand is actually scrubbing
+  const v=Math.abs(REVEAL.raw-windSfxRaw)/Math.max(dt,1e-3);
+  windSfxRaw=REVEAL.raw;
+  windSfxVel+=(v-windSfxVel)*(1-Math.exp(-dt*3));
+  if(!windSfx) return;
+  const amt=band(p,0.10,0.32)*(1-band(p,0.86,1.0));
+  const level=amt*(0.35+Math.min(0.65,windSfxVel*1.6))*0.14;   // quiet, airy
+  windSfx.gain.gain.setTargetAtTime(level,windSfx.ctx.currentTime,0.25);
+}
+
+// ---- CLICK TO BEGIN -------------------------------------------------------
+// The first click (or tap, or Enter/Space) ARMS the piece: it is the one
+// guaranteed user gesture, so it unlocks the AudioContext (wind), primes the
+// media element with a muted play/pause (the element then carries its own
+// activation and the commit's play() succeeds for everyone), and releases
+// the scroller. Nothing auto-advances — the morph stays scroll-driven.
+function arm(){
+  if(REVEAL.armed) return;
+  REVEAL.armed=true;
+  document.body.classList.remove('wait');
+  windStart();                       // gesture: audio unlocked
+  primeScore();                      // gesture: the score's element blessed
+  enterBtn.classList.add('armed');   // the down-arrow appears
+  const s=document.getElementById('enterlbl');
+  if(s) s.textContent='scroll';
+  enterBtn.title='scroll, swipe or press ↓';
+}
+// a click ANYWHERE on the cover is the click
+cover.addEventListener('click',()=>{ if(!REVEAL.armed) enter(); });
+// wheel before the click: hold firm, let the affordance answer
+let _nudgeT=0;
+addEventListener('wheel',()=>{
+  if(REVEAL.armed||REVEAL.committed) return;
+  enterBtn.classList.add('nudge');
+  clearTimeout(_nudgeT);
+  _nudgeT=setTimeout(()=>enterBtn.classList.remove('nudge'),650);
+},{passive:true});
+
+// keyboard / click / tap: no continuous input to track, so ease the scroll
+// offset itself to the end — the same scrubbed path, just driven for them.
+let autoScroll=null;
+function enter(){
+  if(REVEAL.committed) return;
+  if(!REVEAL.armed){ arm(); if(!REDUCE) return; }   // first press = the click
+  if(REDUCE){ commitReveal(); return; }             // reduced motion: straight in
+  const d=revealDist(), from=scrollY, t0=performance.now(), dur=1700;
+  autoScroll=()=>{
+    const k=Math.min(1,(performance.now()-t0)/dur);
+    scrollTo(0,from+(d-from)*ease(k));
+    if(k<1) requestAnimationFrame(autoScroll); else autoScroll=null;
+  };
+  requestAnimationFrame(autoScroll);
+}
+// The render loop cannot start until 80MB of geometry has arrived, so the
+// cover gets its own ticker until then. Without it, scrolling during the
+// download did nothing at all and read as a hung page.
+let _ct=performance.now();
+(function coverTick(){
+  if(REVEAL.scene||REVEAL.committed) return;      // main loop takes over
+  const now=performance.now();
+  stepReveal(Math.min(0.1,(now-_ct)/1000)); _ct=now;
+  requestAnimationFrame(coverTick);
+})();
+
+enterBtn.onclick=enter;
+addEventListener('keydown',e=>{
+  if(REVEAL.committed||autoScroll) return;
+  if(e.code==='ArrowDown'||e.code==='Space'||e.code==='PageDown'||e.code==='Enter'){
+    e.preventDefault(); enter();
+  }
+});
+if(REDUCE){ document.body.classList.remove('cover'); }
+
+const manifest=await (await fetch('assets/manifest.json'+'?v='+Date.now())).json();
+// tree runs y -0.85 (ground) to +2.15 (canopy top), height 3.0.
+// target sits at half height so zooming in frames the whole tree.
+const C=manifest.center; controls.target.set(C[0],0.55,C[2]);
+camera.position.set(C[0]+6.5,1.9,C[2]+8.0);
+HOME_POS.copy(camera.position); HOME_TGT.set(C[0],0.55,C[2]);
+ANCHOR_HOME.copy(HOME_TGT); ANCHOR.copy(HOME_TGT);
+{ const off=HOME_POS.clone().sub(HOME_TGT);
+  HOME_DIST=off.length();
+  HOME_PHI=Math.acos(Math.max(-1,Math.min(1,off.y/HOME_DIST))); }
+
+// ---- SKY DOME -------------------------------------------------------------
+// Colours sampled from the real winter capture: zenith #9cb0e4, upper #a0aad4.
+// Sunset azimuth measured at 270-315 deg (WNW) — correct for a March evening
+// in the UK. Procedural rather than captured, because at 100m+ the orbit had
+// almost no parallax so the reconstructed backdrop is smear, not information.
+const skyMat=new THREE.ShaderMaterial({
+  side:THREE.BackSide, depthWrite:false, fog:false,
+  uniforms:{uSeason:{value:2},uAudio:{value:0},uStorm:{value:0},uFlash:{value:0},uHeat:{value:0},uGloom:{value:0},uHaze:{value:new THREE.Color(0.5,0.5,0.55)},uLift:{value:0.10},uDark:{value:0}},
+  vertexShader:`
+    varying vec3 vDir;
+    void main(){ vDir=normalize(position); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`
+    uniform float uSeason,uAudio,uStorm,uFlash,uHeat,uGloom;
+    uniform float uDark;   // cover: hold the sky near-black behind the wordmark
+    varying vec3 vDir;
+    void main(){
+      float h=clamp(vDir.y*0.5+0.5,0.0,1.0);              // 0 nadir .. 1 zenith
+      float az=atan(vDir.z,vDir.x);
+      // sunset sits WNW (~292 deg); glow strongest near horizon on that side
+      float sunDir=radians(292.0);
+      float toSun=cos(az-sunDir)*0.5+0.5;
+      float horizonBand=pow(1.0-abs(h-0.5)*2.0,2.2);
+
+      // palettes -------------------------------------------------------------
+      // WARM: sampled from the real 13-March sunset photo — lavender zenith,
+      // mauve mid, orange horizon band. This is the pre-spring sky.
+      vec3 warmZen=vec3(0.530,0.450,0.820);   // violet zenith
+      vec3 warmMid=vec3(0.900,0.560,0.820);   // pink cloud band
+      vec3 warmHor=vec3(1.000,0.680,0.600);   // pink horizon, not orange
+      // SNOW: near-black so falling snow reads bright and distinct
+      vec3 snowZen=vec3(0.010,0.014,0.026);
+      vec3 snowHor=vec3(0.030,0.038,0.055);
+      // summer sky warms as the season ages: crisp blue -> hazy gold
+      float sumAge=smoothstep(1.25,3.05,uSeason);
+      vec3 sumZen =mix(vec3(0.300,0.520,0.900),vec3(0.400,0.470,0.720),sumAge);
+      vec3 sumHor =mix(vec3(1.000,0.920,0.780),vec3(1.000,0.820,0.600),sumAge);
+      vec3 autZen =vec3(0.400,0.400,0.580);   // autumn
+      vec3 autHor =vec3(0.960,0.760,0.620);
+
+      // Cycle order: dawn -> blue day -> summer -> autumn -> PINK DUSK -> night
+      // The night straddles the 5->0 wrap, so it is expressed as two halves and
+      // selected on which side of the cycle we are — that keeps it continuous.
+      float nightLate  = smoothstep(3.95,4.75,uSeason);        // falls into night
+      float nightEarly = 1.0-smoothstep(0.15,0.95,uSeason);    // holds past the wrap
+      float wSnow  = mix(nightEarly,nightLate,step(2.0,uSeason));
+      // pink/violet dusk sits AFTER autumn and BEFORE the dark
+      float wWarm  = smoothstep(3.15,3.75,uSeason)*(1.0-smoothstep(4.00,4.70,uSeason));
+      // long climb out of the dark into the blue spring day
+      float wSum   = smoothstep(0.35,1.75,uSeason)*(1.0-smoothstep(2.98,3.62,uSeason));
+      float wAut   = smoothstep(3.02,3.55,uSeason)*(1.0-smoothstep(3.55,3.88,uSeason));
+      float tot=max(wSnow+wWarm+wSum+wAut,0.0001);
+      wSnow/=tot; wWarm/=tot; wSum/=tot; wAut/=tot;
+
+      vec3 zen=warmZen*wWarm+snowZen*wSnow+sumZen*wSum+autZen*wAut;
+      vec3 hor=warmHor*wWarm+snowHor*wSnow+sumHor*wSum+autHor*wAut;
+      // in summer the warm band climbs the sky, so the distant treeline sits
+      // in haze rather than against clean blue
+      float blendPow=mix(0.52,0.66,wSum*(0.35+0.65*sumAge));
+      vec3 col=mix(hor,zen,pow(h,blendPow));
+
+      // mauve cloud band sits between horizon and zenith, warm skies only
+      float band=pow(1.0-abs(h-0.62)*3.2,3.0);
+      col=mix(col,warmMid,clamp(band,0.0,1.0)*wWarm*0.55);
+
+      // summer heat haze hugging the horizon
+      float hazeBand=pow(1.0-clamp(abs(h-0.47)*3.0,0.0,1.0),2.0);
+      col=mix(col,vec3(1.00,0.90,0.78),hazeBand*wSum*(0.05+0.12*sumAge));
+
+      // sunset glow low on the WNW side — strong on the warm sky, mild in autumn
+      float glow=(wWarm*1.0+wAut*0.45)*pow(toSun,3.0)*horizonBand;
+      col=mix(col,vec3(0.99,0.52,0.46),glow*0.92);
+
+      // SUN: rises through spring, high and warm in summer, sinks into autumn
+      // so the sunny light hands off naturally to the orange canopy.
+      float rise=smoothstep(0.30,1.75,uSeason);                     // dawn -> day
+      float sink=smoothstep(2.80,3.95,uSeason);                     // sets through dusk
+      float sunH=mix(0.015,0.32,rise)*(1.0-sink)-0.09*sink;         // dips below horizon
+      vec3 sunPos=normalize(vec3(cos(sunDir)*cos(sunH),sin(sunH),sin(sunDir)*cos(sunH)));
+      float sd=max(dot(normalize(vDir),sunPos),0.0);
+      float disc=pow(sd,2600.0)*1.9+pow(sd,700.0)*0.35;                  // tighter, less blow-out
+      float halo=pow(sd,30.0)*0.22+pow(sd,7.0)*0.11;  // warm haze around it
+      // deliberately NOT white — golden, so summer already leans toward autumn
+      // summer sun AGES: bright and high early, warming as the season runs on,
+      // so it is already golden by the time the leaves turn
+      float sunAge=smoothstep(1.25,3.05,uSeason);
+      vec3 sunSummer=mix(vec3(1.00,0.91,0.70),vec3(1.00,0.76,0.38),sunAge);
+      vec3 sunCol=mix(sunSummer,vec3(1.00,0.70,0.30),wAut);
+      sunCol=mix(sunCol,vec3(1.00,0.72,0.72),wWarm*0.85);   // pink winter sun
+      float sunVis=(wSum*rise+wAut*0.80+wWarm*0.55)*(1.0-smoothstep(3.70,4.10,uSeason));
+      col+=sunCol*(disc+halo)*sunVis;
+
+      // ---- FULL MOON: rises ESE as the light goes, owns the winter night ----
+      float mLate=smoothstep(3.75,4.35,uSeason);
+      float mEarly=1.0-smoothstep(0.10,0.80,uSeason);
+      float moonPhase=mix(mEarly,mLate,step(2.0,uSeason));
+      // starts BELOW the horizon and climbs, so it RISES into view instead of
+      // fading in mid-sky. Visibility is driven by altitude, not an opacity ramp.
+      float mClimb=mix(1.0-smoothstep(0.05,0.95,uSeason),
+                       smoothstep(3.75,4.95,uSeason),step(2.0,uSeason));
+      float moonH=mix(-0.09,0.46,mClimb);
+      float moonUp=moonPhase*smoothstep(-0.055,0.075,moonH);   // clears the horizon
+      vec3 moonPos=normalize(vec3(cos(radians(105.0))*cos(moonH),sin(moonH),
+                                  sin(radians(105.0))*cos(moonH)));
+      float md=max(dot(normalize(vDir),moonPos),0.0);
+      float mdisc=smoothstep(0.99955,0.99985,md);        // crisp lunar disc
+      float mhalo=pow(md,300.0)*0.30+pow(md,26.0)*0.10+pow(md,6.0)*0.035;
+      // faint maria so it reads as the moon, not a lamp
+      float maria=0.90+0.10*sin(vDir.x*260.0)*sin(vDir.y*230.0);
+      col+=vec3(0.97,0.97,1.00)*mdisc*1.35*maria*moonUp;
+      col+=vec3(0.72,0.78,0.95)*mhalo*moonUp;
+
+      // stars, only once it is properly dark
+      float starF=fract(sin(dot(floor(vDir*260.0),vec3(12.9898,78.233,45.164)))*43758.5453);
+      float star=smoothstep(0.9975,0.9995,starF)*smoothstep(0.15,0.55,h);
+      col+=vec3(0.85,0.88,1.0)*star*wSnow*0.85;
+
+      // STORM: drag the sky down to a flat slate, then light it up
+      vec3 storm=mix(vec3(0.30,0.32,0.35),vec3(0.16,0.17,0.20),pow(h,0.7));
+      col=mix(col,storm,uGloom*0.88);
+      col+=vec3(0.85,0.88,1.00)*uFlash*(0.55+0.45*h)*uStorm;
+      col*=1.0+uAudio*0.12;
+
+      // subtle dither kills banding on the gradient
+      float d=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5)*0.008;
+      col=mix(col,vec3(0.030,0.038,0.054),uDark);
+      gl_FragColor=vec4(col+d,1.0);
+    }`});
+const sky=new THREE.Mesh(new THREE.SphereGeometry(120,32,20),skyMat);
+scene.add(sky);
+
+// ---- SPLAT LOAD with byte progress ---------------------------------------
+// ~80MB of point data. No cache-buster here on purpose: the bins are content-
+// immutable, and busting them made every visit a fresh 80MB download.
+// Read the body as a stream so the gate can show a real number instead of a
+// black screen that reads as broken.
+const GATE={done:0,total:(manifest.winter+manifest.leaves)*manifest.stride};
+function gateProgress(){
+  const f=Math.min(1,GATE.done/GATE.total);
+  barfill.style.width=(f*100).toFixed(1)+'%';
+  gstat.textContent='loading the year — '+(GATE.done/1048576).toFixed(0)+' / '
+    +(GATE.total/1048576).toFixed(0)+' MB';
+}
+gateProgress();
+
+async function load(name,count){
+  const res=await fetch('assets/'+name);
+  if(!res.ok) throw new Error(name+' '+res.status);
+  const expect=count*24;
+  let buf;
+  if(res.body&&res.body.getReader){
+    const reader=res.body.getReader();
+    const out=new Uint8Array(expect); let off=0;
+    for(;;){
+      const {done,value}=await reader.read();
+      if(done) break;
+      // guard: a truncated/oversized body must not blow past the buffer
+      if(off+value.length<=expect) out.set(value,off);
+      off+=value.length; GATE.done+=value.length; gateProgress();
+    }
+    buf=out.buffer;
+  }else{
+    buf=await res.arrayBuffer(); GATE.done+=buf.byteLength; gateProgress();
+  }
+  const stride=24, dv=new DataView(buf);
+  const pos=new Float32Array(count*3), col=new Uint8Array(count*4);
+  const rad=new Float32Array(count), up=new Float32Array(count);
+  for(let k=0;k<count;k++){
+    const o=k*stride;
+    pos[k*3]=dv.getFloat32(o,true); pos[k*3+1]=dv.getFloat32(o+4,true); pos[k*3+2]=dv.getFloat32(o+8,true);
+    col[k*4]=dv.getUint8(o+12); col[k*4+1]=dv.getUint8(o+13); col[k*4+2]=dv.getUint8(o+14); col[k*4+3]=dv.getUint8(o+15);
+    rad[k]=dv.getFloat32(o+16,true);
+    up[k]=dv.getFloat32(o+20,true);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('col',new THREE.BufferAttribute(col,4,true));
+  g.setAttribute('rad',new THREE.BufferAttribute(rad,1));
+  g.setAttribute('up',new THREE.BufferAttribute(up,1));
+  return g;
+}
+
+const shared=`
+  uniform float uSeason;   // 0 winter 1 spring 2 summer 3 autumn 4 bare 5 snow
+  uniform float uPx;       // pixels per world unit at unit depth
+  uniform float uAudio;
+  uniform float uDensity;  // 0..1 fraction of points shown
+  uniform vec2 uCentre;    // tree centre in xz, for the edge dissolve
+  uniform float uTime;
+  uniform float uWind;     // 0..1 gust strength, driven by the music
+  uniform float uStorm, uFlash, uGloom;
+  uniform vec3 uHaze;    // aerial perspective tint for distant points
+  uniform float uLift;   // black level: floor lift, white stays put
+  uniform float uHeat;   // pre-storm shimmer
+  // Sway scales with height above ground: trunk barely moves, leaf tips do.
+  // Two out-of-phase waves so the canopy breathes instead of sliding.
+  vec3 windOffset(vec3 pos,float amt){
+    float h=clamp((pos.y+0.9)/3.4,0.0,1.0);
+    float lever=h*h;                                  // cantilever response
+    float ph=pos.x*0.55+pos.z*0.42;
+    float a=sin(uTime*1.15+ph)*0.62+sin(uTime*2.30+ph*1.7)*0.26
+           +sin(uTime*0.47+ph*0.6)*0.34;              // slow swell under it
+    float b=cos(uTime*0.93+ph*1.3)*0.45;
+    return vec3(a,abs(a)*-0.12,b)*lever*amt;
+  }
+  attribute vec4 col; attribute float rad; attribute float up;
+  varying vec4 vCol;
+  float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+
+  // ---- COVER MORPH ---------------------------------------------------------
+  // The title card is not a graphic laid over the piece: it IS the piece,
+  // parked. A slice of the splats (aRnd <= uPart) carries a second address —
+  // a position inside the wordmark — and the scroll interpolates each one
+  // between its letter and its place in the tree. Same material, different
+  // moment. Everything here is per-vertex from a single uniform, so nothing
+  // is rewritten on the CPU while it runs.
+  attribute vec2 aLetter;   // 0..1 inside the wordmark box (0,0 = top-left)
+  attribute float aRnd;     // per-point random, generated CPU-side so the
+                            // participation test matches exactly
+  uniform float uFly;       // 0 = type, 1 = tree. >=1 short-circuits the lot
+  uniform float uPart;      // participation threshold (-1 once revealed)
+  uniform float uLoose;     // pre-flight scatter, in world units
+  uniform float uArc;       // mid-flight bow, so they curve home instead of sliding
+  uniform vec3 uLO,uLR,uLU; // wordmark plane: centre, right*halfWidth, up*halfHeight
+  uniform float uLetterPx;  // on-screen size of a type particle
+  uniform float uLetterA;   // master fade for the type (crossfade off the DOM card)
+  uniform vec3 uLetterCol;
+  // moves wpos toward the wordmark; returns 0 (type) .. 1 (home).
+  // Timing is per-point and deliberately asymmetric:
+  //   DEPARTURE is ordered by letter column (aLetter.x) — the word peels
+  //   apart left to right — while ARRIVAL is ordered by distance from the
+  //   tree's central axis, so the trunk lands first and the outer canopy
+  //   last: the tree funnels into being from its centre outward.
+  // dimA thins the swarm in transit: most points travel unseen and only a
+  // sparse slice carries the visible flight, so mid-morph reads as grain
+  // drifting home instead of a dot-blob swallowing the word.
+  float coverMorph(inout vec3 wpos,vec3 sp,out float dimA){
+    dimA=1.0;
+    if(uFly>=1.0) return 1.0;
+    // no letter address = not part of the word. Without this, the rare point
+    // whose density hash lands on ~0 leaked through the cull and sat parked
+    // at aLetter (0,0) — a bright speck on the corner above the "P".
+    if(aLetter.x+aLetter.y<=0.0) return 1.0;
+    vec3 dir=normalize(vec3(hash(sp*5.1),hash(sp*7.3),hash(sp*9.7))-0.5);
+    float t0=aLetter.x*0.28+hash(sp*3.7)*0.08;             // leave: left first
+    float rr=smoothstep(0.0,6.5,length(sp.xz-uCentre));
+    float t1=0.55+rr*0.36+hash(sp*9.3)*0.07;               // land: centre first
+    float s=clamp((uFly-t0)/(t1-t0),0.0,1.0);
+    s=s*s*(3.0-2.0*s);
+    float mid=sin(3.14159*s);
+    vec3 L=uLO+uLR*(aLetter.x*2.0-1.0)+uLU*(1.0-aLetter.y*2.0)+dir*uLoose;
+    // in transit, bow toward the trunk line — the flight path itself is the
+    // funnel, capped so far-out ground points don't overshoot through it
+    vec3 ap=vec3(uCentre.x-sp.x,0.0,uCentre.y-sp.z);
+    float al=max(length(ap),0.001);
+    ap*=min(al*0.30,1.8)/al;
+    wpos=mix(L,wpos,s)+dir*uArc*mid+ap*mid;
+    float flyer=step(0.62,hash(sp*4.3));                   // ~38% fly visibly
+    dimA=1.0-mid*mix(0.93,0.55,flyer);
+    return s;
+  }
+`;
+
+// cover-morph uniforms, one fresh set per material (the JS updates both)
+const coverUni=()=>({uFly:{value:1},uPart:{value:-1},uLoose:{value:0},uArc:{value:0},
+  uLO:{value:new THREE.Vector3()},uLR:{value:new THREE.Vector3()},uLU:{value:new THREE.Vector3()},
+  uLetterPx:{value:2.7},uLetterA:{value:0},uLetterCol:{value:new THREE.Color(0.90,0.93,0.96)}});
+
+// --- static structure (winter skeleton + ground) ---
+const structMat=(extra)=>new THREE.ShaderMaterial({
+  uniforms:Object.assign({uSeason:{value:2},uPx:{value:1},uAudio:{value:0},uDensity:{value:1},uCentre:{value:new THREE.Vector2(0,0)},uTime:{value:0},uWind:{value:0},uStorm:{value:0},uFlash:{value:0},uHeat:{value:0},uGloom:{value:0},uHaze:{value:new THREE.Color(0.5,0.5,0.55)},uLift:{value:0.10}},coverUni()),
+  vertexShader:shared+`
+    void main(){
+      vCol=col;
+      vCol.rgb=uLift+(1.0-uLift)*vCol.rgb;
+      ${extra||''}
+      // ground dries to gold through summer/autumn, greens up again after
+      float dry=smoothstep(1.4,2.4,uSeason)*(1.0-smoothstep(3.8,4.6,uSeason));
+      float isGround=1.0-smoothstep(0.6,2.0,position.y);
+      vCol.rgb=mix(vCol.rgb,vCol.rgb*vec3(1.35,1.18,0.62)+vec3(0.05,0.04,0.0),dry*isGround*0.85);
+      // summer sun lifts the whole scene — warm, not white
+      float sunny=smoothstep(0.55,1.80,uSeason)*(1.0-smoothstep(3.05,3.95,uSeason));
+      float sunAge=smoothstep(1.25,3.05,uSeason);
+      vec3 warmLight=mix(vec3(1.10,1.03,0.90),vec3(1.22,1.02,0.72),sunAge);
+      vCol.rgb=vCol.rgb*(1.0+sunny*0.40)*mix(vec3(1.0),warmLight,sunny)
+               +vec3(0.055,0.045,0.015)*sunny;
+
+      // WINTER NIGHT: crush toward warm brown-black, not blue-grey, so the
+      // bark still reads as wood against the snow
+      float nLate=smoothstep(3.55,4.70,uSeason);
+      float nEarly=1.0-smoothstep(0.20,1.05,uSeason);
+      float night=mix(nEarly,nLate,step(2.0,uSeason));
+      vCol.rgb=mix(vCol.rgb,vCol.rgb*vec3(0.42,0.30,0.22)+vec3(0.030,0.020,0.014),night*0.88);
+      // moonlight: cool rim on up-facing surfaces once the moon is up
+      float mC=mix(1.0-smoothstep(0.05,0.95,uSeason),
+                   smoothstep(3.75,4.95,uSeason),step(2.0,uSeason));
+      float moonUp=mix(1.0-smoothstep(0.10,0.80,uSeason),
+                       smoothstep(3.75,4.35,uSeason),step(2.0,uSeason))
+                   *smoothstep(-0.055,0.075,mix(-0.09,0.46,mC));
+      vCol.rgb+=vec3(0.10,0.13,0.20)*moonUp*smoothstep(0.30,0.90,up)*0.55;
+
+      // SNOW settles — heavily on the ground, lightly on branches
+      float sLate=smoothstep(4.10,4.70,uSeason);
+      float sEarly=1.0-smoothstep(0.10,0.85,uSeason);      // melts at dawn
+      float snow=mix(sEarly,sLate,step(2.0,uSeason));
+      float ground=1.0-smoothstep(-0.55,0.35,position.y);   // ground/mound band
+      // snow settles on UP-FACING surfaces — 'up' is the gaussian's disc
+      // normal baked from its rotation, so branches catch it on top only
+      float facing=smoothstep(0.25,0.80,up);
+      float patchy=step(0.30,hash(position*3.1));           // not every branch
+      // higher branches catch MORE — nothing above them shields the fall
+      float highness=smoothstep(-0.10,1.70,position.y);
+      float onBranch=facing*patchy*(0.45+1.15*highness);
+      float lay=snow*(ground*0.95+onBranch)*(0.55+0.45*hash(position));
+      vCol.rgb=mix(vCol.rgb,vec3(0.86,0.90,0.99),clamp(lay,0.0,0.92));
+      {
+        float aer=smoothstep(5.0,19.0,length(position.xz-uCentre));
+        vCol.rgb=mix(vCol.rgb,max(vCol.rgb,uHaze),aer*0.62);
+      }
+      // dissolve the captured edge into the sky rather than stopping dead
+      vCol.a*=1.0-smoothstep(10.5,14.0,length(position.xz-uCentre));
+      vCol.rgb=mix(vCol.rgb,vCol.rgb*vec3(0.46,0.50,0.58),uGloom*0.80);
+      vCol.rgb+=vec3(0.55,0.58,0.68)*uFlash*uStorm;
+      vec3 wpos=position+windOffset(position,uWind*0.055);
+      float dimA; float mS=coverMorph(wpos,position,dimA);
+
+      vec4 mv=modelViewMatrix*vec4(wpos,1.0);
+      // wordmark particles are exempt from the density cull — the type has to
+      // be whole even while uDensity is still ramping up behind it.
+      // step(1e-4,...) closes the hash==0 leak: at uDensity 0 a handful of
+      // points still passed step() exactly and hung visible mid-cover.
+      float keep=max(step(hash(position*1.7),uDensity)*step(1e-4,uDensity),step(aRnd,uPart));
+      // snow lying on the ground swells the points so gaps and holes close up
+      // into an even white surface, the way real snow fills hollows
+      float fill=1.0+snow*(ground*1.5+facing*patchy*(0.25+0.45*highness));
+      float ps=clamp(rad*uPx*1.35*fill/-mv.z,1.5,30.0);
+      vCol.rgb=mix(uLetterCol,vCol.rgb,smoothstep(0.0,0.60,mS));
+      vCol.a=mix(uLetterA,vCol.a,smoothstep(0.0,0.40,mS))*dimA;
+      vCol.a*=keep;
+      // dots stay type-sized deep into the flight — swelling early was half
+      // of what made the mid-morph read as a blob
+      gl_PointSize=mix(uLetterPx,ps,smoothstep(0.25,0.85,mS))*keep;
+      gl_Position=projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    varying vec4 vCol;
+    void main(){
+      vec2 d=gl_PointCoord-0.5;
+      float a=vCol.a*smoothstep(0.5,0.22,length(d))*1.7;
+      if(a<0.35) discard;              // hard cutoff -> real depth occlusion
+      gl_FragColor=vec4(vCol.rgb,min(a,1.0));
+    }`,
+  transparent:true,depthWrite:true,depthTest:true,blending:THREE.NormalBlending});
+
+// --- leaves: the animated layer ---
+const leafMat=new THREE.ShaderMaterial({
+  uniforms:Object.assign({uSeason:{value:2},uPx:{value:1},uAudio:{value:0},uDensity:{value:1},uCentre:{value:new THREE.Vector2(0,0)},uTime:{value:0},uWind:{value:0},uStorm:{value:0},uFlash:{value:0},uHeat:{value:0},uGloom:{value:0},uHaze:{value:new THREE.Color(0.5,0.5,0.55)},uLift:{value:0.10},uGround:{value:0.0}},coverUni()),
+  vertexShader:shared+`
+    uniform float uGround;
+    varying float vDead;
+    void main(){
+      vCol=col; vDead=0.0;
+      vCol.rgb=uLift+(1.0-uLift)*vCol.rgb;
+      float seed=hash(position);
+      vec3 p=position;
+      float grow=smoothstep(0.0,1.0,clamp((uSeason-0.6-seed*0.9)/0.55,0.0,1.0)); // spring stagger
+      float scaleF=mix(0.0,1.0,grow);
+      // foliage catches the same warm sun — leans gold before autumn even starts
+      float sunny=smoothstep(0.55,1.80,uSeason)*(1.0-smoothstep(3.05,3.95,uSeason));
+      float sunAge=smoothstep(1.25,3.05,uSeason);
+      vec3 warmLight=mix(vec3(1.08,1.05,0.92),vec3(1.26,1.04,0.66),sunAge);
+      vCol.rgb=vCol.rgb*(1.0+sunny*0.36)*mix(vec3(1.0),warmLight,sunny)
+               +vec3(0.055,0.060,0.010)*sunny;
+      // autumn colour: 2->3 shift toward orange
+      float aut=smoothstep(2.86,3.42,uSeason);
+      vec3 orange=vec3(0.85,0.42,0.10)*(0.35+0.65*vCol.g*2.2);
+      vCol.rgb=mix(vCol.rgb,orange,aut*(0.55+0.45*seed));
+      // fall: 3->4, staggered drop with drift + audio kick
+      float fallBase=(uSeason-3.56-seed*0.34)/0.34;
+      float fall=clamp(fallBase+uAudio*0.25*step(0.0,fallBase),0.0,1.0);
+      float drop=fall*fall;
+      float h=p.y-uGround;
+      p.y=mix(p.y,uGround+0.03+seed*0.05,drop);
+      p.x+=sin(seed*40.0+fall*9.0)*0.5*fall;
+      p.z+=cos(seed*31.0+fall*7.0)*0.5*fall;
+      float onGround=step(0.98,fall);
+      vDead=onGround;
+      // fallen leaves LIE on the ground for a beat before winter takes them —
+      // they only clear once the dark is properly setting in
+      float fade=1.0-smoothstep(4.10,4.26,uSeason)*onGround;   // lie longer, clear before the snow builds
+      vCol.a*=scaleF*fade*(1.0-0.55*onGround);
+      vCol.a*=1.0-smoothstep(10.5,14.0,length(position.xz-uCentre));
+      vCol.rgb=mix(vCol.rgb,vCol.rgb*vec3(0.44,0.50,0.58),uGloom*0.80);
+      vCol.rgb+=vec3(0.52,0.56,0.66)*uFlash*uStorm;
+      {
+        float aer=smoothstep(5.0,19.0,length(position.xz-uCentre));
+        vCol.rgb=mix(vCol.rgb,max(vCol.rgb,uHaze),aer*0.62);
+      }
+      p+=windOffset(position,uWind*0.115*(1.0-drop));
+      float dimA; float mS=coverMorph(p,position,dimA);
+
+      vec4 mv=modelViewMatrix*vec4(p,1.0);
+      // step(1e-4,...): same hash==0 leak guard as the structure layer
+      float keep=max(step(hash(position*1.7),uDensity)*step(1e-4,uDensity),step(aRnd,uPart));
+      float ps=clamp(rad*uPx*1.62*scaleF*(0.35+0.65*grow)/-mv.z,0.0,24.0)*(1.0+uAudio*0.4);
+      vCol.rgb=mix(uLetterCol,vCol.rgb,smoothstep(0.0,0.60,mS));
+      vCol.a=mix(uLetterA,vCol.a,smoothstep(0.0,0.40,mS))*dimA;
+      vDead*=smoothstep(0.0,0.40,mS);
+      vCol.a*=keep;
+      gl_PointSize=mix(uLetterPx,ps,smoothstep(0.25,0.85,mS))*keep;
+      gl_Position=projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    varying vec4 vCol; varying float vDead;
+    void main(){
+      vec2 d=gl_PointCoord-0.5;
+      float a=vCol.a*smoothstep(0.5,0.2,length(d))*1.6;
+      if(a<0.3) discard;
+      vec3 c=mix(vCol.rgb,vCol.rgb*0.45,vDead*0.6);
+      gl_FragColor=vec4(c,min(a,1.0));
+    }`,
+  transparent:true,depthWrite:true,depthTest:true,blending:THREE.NormalBlending});
+
+// (summer background layer removed — winter is the base all year, tinted
+//  seasonally in structMat. Two competing ground layers blended into mush.)
+
+const mats=[];
+const PICK=[];   // {pos:Float32Array} per layer, for dblclick centre-picking
+const gW=await load('winter.bin',manifest.winter);
+PICK.push(gW.attributes.position.array);
+const winter=new THREE.Points(gW,structMat()); scene.add(winter); mats.push(winter.material);
+const gL=await load('leaves.bin',manifest.leaves);
+// ground level for the fall = 2nd percentile of winter y near tree… precompute cheaply:
+{ const ys=[...gW.attributes.position.array].filter((_,i)=>i%3===1).sort((a,b)=>a-b);
+  leafMat.uniforms.uGround.value=ys[Math.floor(ys.length*0.03)]; }
+PICK.push(gL.attributes.position.array);
+const leaves=new THREE.Points(gL,leafMat); scene.add(leaves); mats.push(leafMat);
+
+// ---- WORDMARK -> TREE ------------------------------------------------------
+// Sample "PASSAGE OF TIME / MANK AI" into a point set, then hand a slice of the
+// splats a second address inside it. The shader interpolates; nothing here runs
+// per frame. Two attributes, 5 bytes a point:
+//   aRnd    Uint8   — participation (aRnd/255 <= PART) and, being CPU-made, it
+//                     matches the shader's test exactly. A hash recomputed on
+//                     the GPU disagreed at the threshold and punched holes in
+//                     the letters.
+//   aLetter Uint16x2 — normalised position in the wordmark box, so the type
+//                     rescales with the viewport without re-uploading 16MB.
+const PART_BYTE=20;                       // 21/256 ≈ 8% of the cloud carries type
+function buildWordmark(){
+  // 1. draw the type, oversampled, laid out like the DOM card it replaces
+  const h1=document.querySelector('#cover h1'), who=document.querySelector('#cover .who');
+  const rng=document.createRange();
+  rng.selectNodeContents(h1); const r1=rng.getBoundingClientRect();
+  rng.selectNodeContents(who); const r2=rng.getBoundingClientRect();
+  const L=Math.min(r1.left,r2.left), R=Math.max(r1.right,r2.right);
+  const T=r1.top, B=r2.bottom;
+  const SC=Math.max(2,Math.min(4,2200/Math.max(1,R-L)));   // oversample factor
+  const cv=document.createElement('canvas');
+  cv.width=Math.ceil((R-L)*SC); cv.height=Math.ceil((B-T)*SC);
+  const x2=cv.getContext('2d',{willReadFrequently:true});
+  x2.fillStyle='#fff'; x2.textBaseline='alphabetic';
+  // letter-spacing by hand: ctx.letterSpacing is recent and this is exact.
+  // REGISTRATION: start at the DOM line's LEFT edge and step by the same
+  // advances. Centring on the measured width drifted by the trailing
+  // letter-space (~0.15em — ~10px at desktop h1 size), which was exactly the
+  // ghost offset in the double exposure. Vertically the BASELINE is placed
+  // from the font's own metrics — half-leading + ascent below the line top,
+  // where CSS puts it — instead of the old 'middle' guess.
+  const drawTracked=(txt,cs,rect)=>{
+    const fs=parseFloat(cs.fontSize)*SC, tr=(parseFloat(cs.letterSpacing)||0)*SC;
+    x2.font=cs.fontWeight+' '+fs+'px '+cs.fontFamily;
+    const mtr=x2.measureText('Hg');
+    const asc=mtr.fontBoundingBoxAscent||fs*0.77, dsc=mtr.fontBoundingBoxDescent||fs*0.23;
+    const lh=(rect.bottom-rect.top)*SC;
+    const py=(rect.top-T)*SC+(lh-(asc+dsc))/2+asc;
+    const px=(rect.left-L)*SC;
+    if('letterSpacing' in x2){
+      // one shaped run with the SAME kerning the DOM used — char-by-char
+      // fillText drew ~1% wide and the whole line crept right of the card
+      x2.letterSpacing=tr+'px';
+      x2.fillText(txt,px,py);
+      x2.letterSpacing='0px';
+    }else{
+      let ax=px;
+      for(const ch of txt){ x2.fillText(ch,ax,py); ax+=x2.measureText(ch).width+tr; }
+    }
+  };
+  drawTracked(h1.textContent.trim().toUpperCase(),getComputedStyle(h1),r1);
+  drawTracked(who.textContent.trim().toUpperCase(),getComputedStyle(who),r2);
+  // 2. every inked pixel becomes a candidate, sorted left to right
+  const im=x2.getImageData(0,0,cv.width,cv.height).data;
+  const us=[],vs=[];
+  for(let y=0;y<cv.height;y++) for(let px=0;px<cv.width;px++){
+    if(im[(y*cv.width+px)*4+3]>110){ us.push(px/cv.width); vs.push(y/cv.height); }
+  }
+  if(!us.length) return false;
+  const ord=Int32Array.from(us.keys()).sort((a,b)=>us[a]-us[b]);
+  LBOX={wFrac:(R-L)/innerWidth, cxFrac:((L+R)/2)/innerWidth,
+        cyFrac:((T+B)/2)/innerHeight, aspect:cv.height/cv.width};
+
+  // 3. per-point random + participation, across both clouds
+  const geos=[gW,gL], rnds=[], lets=[];
+  let n=0;
+  for(const g of geos){
+    const c=g.attributes.position.count;
+    const rn=new Uint8Array(c), lt=new Uint16Array(c*2);
+    for(let i=0;i<c;i++) rn[i]=(Math.random()*256)|0;
+    g.setAttribute('aRnd',new THREE.BufferAttribute(rn,1,true));
+    g.setAttribute('aLetter',new THREE.BufferAttribute(lt,2,true));
+    rnds.push(rn); lets.push(lt); n+=c;
+  }
+  // 4. rank participants left to right in WORLD x and hand them the letter
+  //    columns in the same order. Random assignment reads as static; matching
+  //    the two orderings makes the word peel apart into the tree it becomes.
+  const idx=[];
+  for(let gi=0;gi<geos.length;gi++){
+    const rn=rnds[gi];
+    for(let i=0;i<rn.length;i++) if(rn[i]<=PART_BYTE) idx.push(gi*0x8000000+i);
+  }
+  const xs=new Float32Array(idx.length);
+  for(let k=0;k<idx.length;k++){
+    const gi=Math.floor(idx[k]/0x8000000), i=idx[k]-gi*0x8000000;
+    xs[k]=geos[gi].attributes.position.array[i*3];
+  }
+  const rank=Int32Array.from(xs.keys()).sort((a,b)=>xs[a]-xs[b]);
+  const N=rank.length, M=ord.length;
+  for(let r=0;r<N;r++){
+    const k=rank[r], gi=Math.floor(idx[k]/0x8000000), i=idx[k]-gi*0x8000000;
+    const s=ord[Math.min(M-1,(r*M/N)|0)];
+    // jitter inside the source pixel so repeats don't stack into hard dots
+    const u=Math.min(1,Math.max(0,us[s]+(Math.random()-0.5)/cv.width));
+    const v=Math.min(1,Math.max(0,vs[s]+(Math.random()-0.5)/cv.height));
+    lets[gi][i*2]=u*65535; lets[gi][i*2+1]=v*65535;
+  }
+  PART=PART_BYTE/255;
+  console.info('wordmark: '+N+' particles from '+M+' inked samples');
+  return true;
+}
+
+// --- falling snow: procedural particles, active only in the 4->5 phase ---
+const SNOW=45000;
+{
+  const sp=new Float32Array(SNOW*3), ss=new Float32Array(SNOW);
+  for(let k=0;k<SNOW;k++){
+    const a=Math.random()*Math.PI*2, rr=Math.sqrt(Math.random())*13;
+    sp[k*3]=C[0]+Math.cos(a)*rr; sp[k*3+1]=Math.random()*14-1; sp[k*3+2]=C[2]+Math.sin(a)*rr;
+    ss[k]=Math.random();
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(sp,3));
+  g.setAttribute('seed',new THREE.BufferAttribute(ss,1));
+  var snowMat=new THREE.ShaderMaterial({
+    uniforms:{uSeason:{value:2},uTime:{value:0},uPx:{value:1},uAudio:{value:0},uGround:{value:leafMat.uniforms.uGround.value}},
+    vertexShader:`
+      uniform float uSeason,uTime,uPx,uAudio,uGround;
+      attribute float seed;
+      varying float vA;
+      void main(){
+        float pLate=smoothstep(4.05,4.55,uSeason);
+        float pEarly=1.0-smoothstep(0.05,0.65,uSeason);
+        float phase=mix(pEarly,pLate,step(2.0,uSeason));
+        vec3 p=position;
+        float speed=0.55+seed*0.5;
+        float span=15.0;
+        float y=mod(p.y - uTime*speed, span);          // loop through the column
+        p.y=uGround+0.02+y;
+        p.x+=sin(uTime*(0.6+seed)+seed*40.0)*0.5;
+        p.z+=cos(uTime*(0.5+seed*0.8)+seed*23.0)*0.5;
+        vA=phase*(0.45+0.55*seed);
+        vec4 mv=modelViewMatrix*vec4(p,1.0);
+        gl_PointSize=clamp((0.014+seed*0.012)*uPx/-mv.z,0.0,5.0);
+        gl_Position=projectionMatrix*mv;
+      }`,
+    fragmentShader:`
+      varying float vA;
+      void main(){
+        vec2 d=gl_PointCoord-0.5;
+        float a=vA*smoothstep(0.5,0.1,length(d));
+        if(a<0.02) discard;
+        gl_FragColor=vec4(0.92,0.95,1.0,a);
+      }`,
+    transparent:true,depthWrite:false});
+  { const o=new THREE.Points(g,snowMat); scene.add(o); COVER_HIDE.push(o); }
+}
+
+// UI
+const slider=document.getElementById('season'), lbl=document.getElementById('lbl');
+const densityEl=document.getElementById('density');
+const playBtn=document.getElementById('play');
+
+// season phase 0..5 mapped to REAL dwell time (seconds). Summer is the star —
+// it took three days of captures to get it, so it holds longest.
+const SEG=[
+  {from:0.0, to:1.0, secs:10},   // DAWN — long climb out of the dark, snow melts
+  {from:1.0, to:2.0, secs: 8},   // spring growth into blue day
+  {from:2.0, to:3.0, secs:13},   // SUMMER — still the longest, but tighter
+  {from:3.0, to:3.6, secs: 9},   // autumn colour — given more room
+  {from:3.6, to:4.1, secs: 9},   // PINK DUSK + leaves falling
+  {from:4.1, to:5.0, secs:14},   // NIGHT — dark, snow, moon
+];
+const TOTAL=SEG.reduce((a,s)=>a+s.secs,0);
+function phaseAt(elapsed){
+  let e=elapsed%TOTAL;
+  for(const s of SEG){
+    if(e<s.secs) return s.from+(s.to-s.from)*(e/s.secs);
+    e-=s.secs;
+  }
+  return 5;
+}
+function elapsedAt(phase){           // inverse, so scrubbing keeps playback in sync
+  let acc=0;
+  for(const s of SEG){
+    if(phase<=s.to) return acc+s.secs*((phase-s.from)/(s.to-s.from));
+    acc+=s.secs;
+  }
+  return TOTAL;
+}
+const names=['winter','spring','summer','autumn','fall','snow'];
+function nameFor(t){
+  if(t<0.85)return'dawn';   if(t<1.95)return'spring'; if(t<2.95)return'summer';
+  if(t<3.60)return'autumn'; if(t<4.10)return'dusk'; return'winter';   // dusk = pink evening, then winter snow
+}
+
+let playing=false, t=2, elapsed=elapsedAt(2);
+function setPlay(v){playing=v; playBtn.textContent=playing?'❚❚ Pause':'▶ Play'; playBtn.classList.toggle('on',playing);}
+playBtn.onclick=()=>setPlay(!playing);
+document.getElementById('stop').onclick=()=>{setPlay(false);};   // freeze where it is
+document.querySelectorAll('.jump').forEach(b=>{
+  b.onclick=()=>{setPlay(false); t=parseFloat(b.dataset.t); elapsed=elapsedAt(t); slider.value=t;};
+});
+const spinEl=document.getElementById('spinspeed');
+document.getElementById('orbit').onclick=(e)=>{
+  if(loopLock) return;                 // loop lock owns the camera; ignore
+  controls.autoRotate=!controls.autoRotate;
+  e.target.classList.toggle('on',controls.autoRotate);
+};
+spinEl.oninput=()=>{ controls.autoRotateSpeed=parseFloat(spinEl.value); };
+
+// --- LOOP LOCK: seamless projection loop -------------------------------
+// A wall loop only reads as seamless if the CAMERA is back at its starting
+// angle exactly when the season cycle wraps. Everything else already wraps
+// (the sky/snow/night terms are written as matched halves either side of the
+// 5->0 seam) — the camera is the one thing that does not, because
+// OrbitControls' autoRotate accumulates per FRAME and assumes 60fps, so its
+// real rotation drifts with framerate and never lands twice the same.
+//
+// Locked, we stop accumulating and drive azimuth straight from `elapsed`:
+// a whole number of turns per TOTAL seconds is exact whatever the frame
+// timing does. Applied as a per-frame DELTA rather than an absolute angle,
+// so dragging to reframe still works and just offsets the whole loop.
+const loopBtn=document.getElementById('looplock');
+const revsEl=document.getElementById('looprevs');
+let loopLock=false, loopAng=0, spinWas=false;
+const loopWant=()=>parseFloat(revsEl.value)*2*Math.PI*(elapsed/TOTAL);
+function setLoopLock(v){
+  if(v&&!loopLock) spinWas=controls.autoRotate;      // remember Orbit's state
+  loopLock=v;
+  loopBtn.classList.toggle('on',loopLock);
+  loopBtn.textContent=loopLock?`∞ Loop ${TOTAL}s`:'∞ Loop';
+  revsEl.style.display=loopLock?'':'none';
+  if(loopLock){ controls.autoRotate=false; loopAng=loopWant(); }
+  else controls.autoRotate=spinWas;
+  const orb=document.getElementById('orbit');
+  orb.classList.toggle('on',controls.autoRotate);
+  orb.style.opacity=loopLock?0.35:'';       // greyed: inert while locked
+  spinEl.style.opacity=loopLock?0.35:'';
+}
+loopBtn.onclick=()=>setLoopLock(!loopLock);
+revsEl.onchange=()=>{ if(loopLock) loopAng=loopWant(); };   // no jump on change
+addEventListener('keydown',e=>{if(e.code==='Space'){setPlay(!playing);e.preventDefault();}});
+// U = hide the whole UI + hint for a clean capture (NVIDIA / OBS / screenshot).
+// Toggles back on the same key. ?kiosk in the URL starts hidden.
+function setUI(show){ document.getElementById('ui').style.display=show?'':'none';
+  const h=document.getElementById('hint'); if(h) h.style.display=show?'':'none'; }
+let uiShown=!/[?&]kiosk\b/.test(location.search); setUI(uiShown);
+addEventListener('keydown',e=>{ if(e.code==='KeyU'){ uiShown=!uiShown; setUI(uiShown); } });
+slider.oninput=()=>{t=parseFloat(slider.value); elapsed=elapsedAt(t); setPlay(false);};
+
+// audio — drives BOTH visual pulse and how fast the year runs
+let analyser=null,adata=null,audioOn=false;
+let beatEnv=0, lastBass=0, tempo=0;      // tempo = smoothed musical energy
+let actx=null, audioEl=null, masterGain=null;
+let overture=null, scoreBuf=null;   // WebAudio overture for the bundled score
+
+function ensureCtx(){
+  if(!actx){ actx=new AudioContext(); masterGain=actx.createGain();
+    masterGain.gain.value=vol?parseFloat(vol.value):0.85; masterGain.connect(actx.destination); }
+  if(actx.state==='suspended') actx.resume(); return actx;
+}
+function attach(node){
+  const ctx=ensureCtx();
+  analyser=ctx.createAnalyser(); analyser.fftSize=512; analyser.smoothingTimeConstant=0.6;
+  adata=new Uint8Array(analyser.frequencyBinCount);
+  node.connect(analyser);
+  audioOn=true;
+}
+
+// --- music file playback ---
+const fileEl=document.getElementById('file'), aplay=document.getElementById('aplay');
+const apos=document.getElementById('apos'), atime=document.getElementById('atime');
+const trackLbl=document.getElementById('track');
+let seeking=false;
+document.getElementById('loadmusic').onclick=()=>fileEl.click();
+// One path for both the bundled score and a dropped-in file. Must be called
+// from a user gesture the first time — createMediaElementSource on a suspended
+// context plays silently and there is no error to tell you why.
+function useAudio(url,label,autoplay,startAt){
+  if(overture){ try{ overture.src.stop(); }catch(e){} overture=null; }
+  if(audioEl){ audioEl.pause(); audioEl.src=''; }
+  audioEl=new Audio(url);
+  audioEl.crossOrigin='anonymous';
+  const ctx=ensureCtx();
+  const src=ctx.createMediaElementSource(audioEl);
+  attach(src);
+  src.connect(masterGain);                 // audible path, level-controlled
+  // analyser is fed separately in attach(), so muting never stops reactivity
+  audioEl.onloadedmetadata=()=>{ apos.max=audioEl.duration||1; };
+  // startAt skips dead air (the bundled cover holds ~5s of silence before the
+  // first note) — seek as soon as metadata allows, so play() is audible at once
+  if(startAt){
+    const seek=()=>{ try{ if(audioEl.currentTime<startAt) audioEl.currentTime=startAt; }catch(e){} };
+    seek();                                  // browsers queue a pre-metadata seek
+    audioEl.addEventListener('loadedmetadata',seek,{once:true});
+  }
+  audioEl.onended=()=>{ aplay.textContent='▶'; };
+  aplay.disabled=false;
+  trackLbl.textContent=label.length>28?label.slice(0,26)+'…':label;
+  if(autoplay) return audioEl.play().then(()=>{ aplay.textContent='❚❚'; setPlay(true); })
+                                    .catch(()=>{ aplay.textContent='▶'; });
+  return Promise.resolve();
+}
+fileEl.onchange=()=>{
+  const f=fileEl.files[0]; if(!f) return;
+  useAudio(URL.createObjectURL(f),f.name,true);
+};
+aplay.onclick=()=>{
+  if(!audioEl) return;
+  if(audioEl.paused){ ensureCtx(); audioEl.play(); aplay.textContent='❚❚'; setPlay(true); }
+  else { audioEl.pause(); aplay.textContent='▶'; }
+};
+// volume + mute. Mute remembers the pre-mute level and restores it; the
+// analyser tap is upstream of masterGain, so silence here still drives visuals.
+const vol=document.getElementById('vol'), muteBtn=document.getElementById('mute');
+let preMute=parseFloat(vol.value);
+function applyVol(){ if(masterGain) masterGain.gain.value=parseFloat(vol.value);
+  muteBtn.textContent=parseFloat(vol.value)<=0.0001?'🔇':'🔊'; }
+vol.oninput=()=>{ applyVol(); };
+muteBtn.onclick=()=>{
+  const v=parseFloat(vol.value);
+  if(v>0.0001){ preMute=v; vol.value=0; } else { vol.value=preMute>0.02?preMute:0.85; }
+  applyVol();
+};
+apos.oninput=()=>{ seeking=true; };
+apos.onchange=()=>{ if(audioEl){ audioEl.currentTime=parseFloat(apos.value); } seeking=false; };
+const fmt=s=>isFinite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'—';
+
+document.getElementById('mic').onclick=async(e)=>{
+  try{
+    const ctx=ensureCtx();
+    const s=await navigator.mediaDevices.getUserMedia({audio:true});
+    attach(ctx.createMediaStreamSource(s));   // mic NOT routed to speakers
+    e.target.classList.add('on'); e.target.textContent='Mic ●';
+  }catch(err){ e.target.textContent='Mic ✕'; }
+};
+
+// ---- VIDEO EXPORT: captures the canvas straight to a .webm --------------
+let recorder=null,chunks=[],recPrev=null;
+document.getElementById('rec').onclick=(e)=>{
+  if(recorder&&recorder.state==='recording'){
+    recorder.stop(); e.target.textContent='● Record'; e.target.classList.remove('on'); return;
+  }
+  // Render at the chosen resolution, not whatever the window happens to be —
+  // that was the main reason exports looked soft.
+  const rw=parseInt(document.getElementById('recres').value)||0;
+  if(rw){
+    recPrev={w:renderer.domElement.width,h:renderer.domElement.height,
+             pr:renderer.getPixelRatio(),css:renderer.domElement.style.cssText};
+    const rh=Math.round(rw*innerHeight/innerWidth/2)*2;
+    renderer.setPixelRatio(1);
+    renderer.setSize(rw,rh,false);           // false = don't touch CSS size
+    camera.aspect=rw/rh; camera.updateProjectionMatrix();
+  }
+  // 30fps: 60 doubled the framebuffer copies AND the encode load on a 5M-point
+  // scene and dropped the live framerate. 30 also matches the PNG-seq export.
+  const cs=renderer.domElement.captureStream(30);
+  // fold in the music if a track is loaded, so the export has sound
+  if(audioEl&&actx){
+    try{
+      const dest=actx.createMediaStreamDestination();
+      analyser.connect(dest);
+      dest.stream.getAudioTracks().forEach(tr=>cs.addTrack(tr));
+    }catch(err){}
+  }
+  // Prefer HARDWARE H.264 (mp4/avc1) — Chrome routes it to the GPU encoder,
+  // same family NVIDIA uses, so it's NVENC-tier from inside the app and dodges
+  // the soft VP9 mangling. Fall back to VP9 (best software), then VP8.
+  const types=['video/mp4;codecs=avc1','video/mp4',
+               'video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  const mime=types.find(t=>MediaRecorder.isTypeSupported(t))||'';
+  const isMp4=mime.startsWith('video/mp4');
+  const px=renderer.domElement.width*renderer.domElement.height;
+  const bitrate=Math.min(1.2e8,Math.max(2.4e7,Math.round(px*0.018)));  // ~scale with pixels
+  recorder=new MediaRecorder(cs,{mimeType:mime,videoBitsPerSecond:bitrate});
+  chunks=[];
+  recorder.ondataavailable=ev=>{ if(ev.data.size) chunks.push(ev.data); };
+  recorder.onstop=()=>{
+    if(recPrev){
+      renderer.setPixelRatio(recPrev.pr);
+      renderer.setSize(innerWidth,innerHeight);
+      camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+      recPrev=null;
+    }
+    const blob=new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='passage-of-time.'+(isMp4?'mp4':'webm');
+    a.click();
+  };
+  recorder.start();
+  e.target.textContent='■ Stop rec'; e.target.classList.add('on');
+  // record from wherever you are — no phase hijack
+};
+
+// ---- BIRDS: two flocks, matching what actually happens in a year --------
+// NEAR (spring): individuals wheeling close around the tree — arrival.
+// FAR  (autumn): a high V skein crossing away — migration.
+// At real distance birds ARE moving dots that flicker as wings beat, so
+// points read correctly without geometry.
+let birdMat=null;
+{
+  const NEAR=16, FAR=46, N=NEAR+FAR;
+  const idx=new Float32Array(N), pos=new Float32Array(N*3);
+  for(let i=0;i<N;i++) idx[i]=i;
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('bIdx',new THREE.BufferAttribute(idx,1));
+  birdMat=new THREE.ShaderMaterial({
+    uniforms:{uSeason:{value:2},uTime:{value:0},uPx:{value:1},uCen:{value:new THREE.Vector3()},
+      uCamPos:{value:new THREE.Vector3()},uCamRight:{value:new THREE.Vector3()},uCamFwd:{value:new THREE.Vector3()},
+      uToCam:{value:new THREE.Vector3(0,0,1)}},
+    vertexShader:`
+      uniform float uSeason,uTime,uPx; uniform vec3 uCen,uCamPos,uCamRight,uCamFwd,uToCam;
+      attribute float bIdx;
+      varying float vA; varying float vNear; varying float vFlap;
+      float h11(float x){ return fract(sin(x*127.1)*43758.5453); }
+      void main(){
+        float i=bIdx;
+        vec3 p; float sz; float vis;
+        if(i<15.5){
+          // NEAR — they ARRIVE with one fast sweep past the camera, then
+          // settle into wheeling round the canopy. The sweep is the accent:
+          // the year visibly restarting.
+          float s=h11(i+3.0), s2=h11(i+19.0);
+          // ARRIVAL is a full circling flight, not a straight pass: they come
+          // in low from the front-left, cross IN FRONT of the tree (tree on
+          // their left), bank away right, loop round the back and return.
+          // Route (top-down, camera at bottom): enter screen-LEFT, cut through
+          // the gap BETWEEN camera and tree, close past its near edge (tree on
+          // their left), then curl round the right side to the back and spiral
+          // in to the wheeling. Two segments, joined where the line meets the arc.
+          float arr=clamp((uSeason-0.70)/1.30,0.0,1.0);
+          float a=arr;
+          float aa=clamp(a-s*0.07,0.0,1.0);              // small stagger along path
+          vec3 nearDir=normalize(vec3(uToCam.x,0.0,uToCam.z));   // tree -> camera
+          vec3 sideDir=vec3(nearDir.z,0.0,-nearDir.x);            // SCREEN-RIGHT
+          vec3 sweep;
+          if(aa<0.55){
+            float t1=aa/0.55;
+            float x=mix(-10.0,6.0,t1);                   // less wasted offscreen run-in
+            sweep=uCen+nearDir*(5.9+s2*0.8)+sideDir*x;   // near side, clears the crown
+            sweep.y=0.9+s*0.5+t1*0.3;                    // low the whole pass
+          } else {
+            float t2=smoothstep(0.0,1.0,(aa-0.55)/0.45);
+            float th=0.80+t2*5.4;                        // curl right -> back -> round
+            float Rr=mix(8.2,4.6,t2);                    // spirals in
+            sweep=uCen+(nearDir*cos(th)+sideDir*sin(th))*Rr;
+            sweep.y=mix(1.2,2.4,t2)+s*0.5;               // rises as it circles
+          }
+          sweep.y+=sin(uTime*5.5+i*2.0)*0.13;
+          float cyc=fract(uTime/(11.0+s*7.0)+s);
+          float dir=step(0.5,s2)*2.0-1.0;
+          float wheelAng=cyc*6.2831*dir+s*6.2831;
+          float rad=4.2+s2*3.6+sin(uTime*0.6+i)*0.5;
+          float hh=1.5+s*2.1+sin(uTime*(1.1+s)+i*1.7)*0.45;
+          vec3 wheel=uCen+vec3(cos(wheelAng)*rad,hh,sin(wheelAng)*rad);
+          wheel.y+=sin(uTime*5.0+i*2.0)*0.09;
+          float settle=smoothstep(0.55,1.00,arr);
+          p=mix(sweep,wheel,settle);
+          float season=smoothstep(0.85,1.45,uSeason)*(1.0-smoothstep(2.35,2.85,uSeason));
+          float win=smoothstep(0.03,0.12,cyc)*(1.0-smoothstep(0.86,0.97,cyc));
+          float sweepVis=smoothstep(0.01,0.10,a);
+          vis=mix(sweepVis,season*win,settle);
+          sz=0.095*(1.0+(1.0-settle)*0.45);
+          vFlap=0.5+0.5*sin(uTime*5.2+i*2.0);
+          vNear=1.0;
+        } else {
+          // FAR — the skein leaving, autumn into winter
+          float j=i-16.0;
+          float side=mod(j,2.0)*2.0-1.0;
+          float rank=floor(j/2.0);
+          float cyc=fract(uTime/34.0);
+          float dir=mod(floor(uTime/34.0),2.0)*2.0-1.0;
+          float x=mix(-30.0,30.0,cyc)*dir;
+          vec3 form=vec3(-dir*rank*0.55, rank*0.07+side*0.02, side*rank*0.42);
+          float hgt=8.5+sin(cyc*3.14159)*2.4;
+          p=uCen+vec3(x,hgt,-11.0)+form;
+          p.y+=sin(uTime*7.5+j*0.9)*0.05;
+          float season=smoothstep(2.95,3.40,uSeason)*(1.0-smoothstep(4.10,4.55,uSeason));
+          float win=smoothstep(0.03,0.13,cyc)*(1.0-smoothstep(0.87,0.97,cyc));
+          vis=season*win;
+          sz=0.055;
+          vFlap=0.5+0.5*sin(uTime*4.6+j*0.9);
+          vNear=0.0;
+        }
+        vA=vis;
+        vec4 mv=modelViewMatrix*vec4(p,1.0);
+        gl_PointSize=clamp(sz*uPx/-mv.z,2.0,19.0);
+        gl_Position=projectionMatrix*mv;
+      }`,
+    fragmentShader:`
+      varying float vA; varying float vNear; varying float vFlap;
+      float seg(vec2 p,vec2 a,vec2 b){
+        vec2 pa=p-a, ba=b-a;
+        float h=clamp(dot(pa,ba)/dot(ba,ba),0.0,1.0);
+        return length(pa-ba*h);
+      }
+      void main(){
+        vec2 uv=(gl_PointCoord-0.5)*2.0;
+        uv.y=-uv.y;
+        uv.x=abs(uv.x);                       // mirror: both wings at once
+        float tip=mix(0.55,-0.30,vFlap);      // wing rises and falls
+        float d=seg(uv,vec2(0.0,0.0),vec2(0.95,tip));
+        float w=mix(0.30,0.14,uv.x);          // taper toward the tip
+        float body=smoothstep(w,w*0.35,d);
+        float a=vA*body;
+        if(a<0.04) discard;
+        vec3 c=mix(vec3(0.10,0.09,0.11),vec3(0.14,0.12,0.12),vNear);
+        gl_FragColor=vec4(c,a*0.9);
+      }`,
+    transparent:true,depthWrite:false});
+  const birds=new THREE.Points(g,birdMat);
+  birds.frustumCulled=false;
+  scene.add(birds); COVER_HIDE.push(birds);
+}
+
+// ---- BIRD CALLS: synthesised, no samples ---------------------------------
+// A bird call is essentially a fast pitch sweep with a sharp envelope. Two or
+// three stacked sweeps read as one tweet. Sits at 2-4kHz where solo piano has
+// little energy, so it never fights the music.
+let birdSfx=true;
+document.getElementById('birdsfx').onclick=(e)=>{
+  birdSfx=!birdSfx; e.target.classList.toggle('on',birdSfx);
+  if(birdSfx){ ensureCtx(); tweet(); }   // click = audible test
+};
+function cheep(when,f,gain,dur){
+  // House sparrow: a short, flat, slightly buzzy "cheep" — almost no pitch
+  // sweep, unlike a songbird's whistle. Two detuned oscillators plus a
+  // triangle give it that dry, chattery body.
+  const g=actx.createGain();
+  const bp=actx.createBiquadFilter();
+  bp.type='bandpass'; bp.frequency.value=f*1.15; bp.Q.value=3.2;
+  const o1=actx.createOscillator(), o2=actx.createOscillator();
+  o1.type='triangle'; o2.type='sawtooth';
+  o1.frequency.setValueAtTime(f,when);
+  o1.frequency.linearRampToValueAtTime(f*0.90,when+dur);   // slight fall only
+  o2.frequency.setValueAtTime(f*1.007,when);               // detune = buzz
+  o2.frequency.linearRampToValueAtTime(f*0.90,when+dur);
+  const g2=actx.createGain(); g2.gain.value=0.35;          // saw sits under
+  g.gain.setValueAtTime(0.0001,when);
+  g.gain.exponentialRampToValueAtTime(gain,when+0.006);    // sharp attack
+  g.gain.exponentialRampToValueAtTime(0.0001,when+dur);
+  o1.connect(bp); o2.connect(g2); g2.connect(bp);
+  bp.connect(g); g.connect(masterGain||actx.destination);
+  o1.start(when); o2.start(when);
+  o1.stop(when+dur+0.03); o2.stop(when+dur+0.03);
+}
+function tweet(){
+  if(!birdSfx) return;
+  try{ ensureCtx(); }catch(e){ return; }
+  if(!actx||actx.state!=='running') return;
+  // sparrows chatter in loose irregular clusters, not tidy phrases
+  const t0=actx.currentTime+0.02;
+  const n=2+Math.floor(Math.random()*4);
+  let t=0;
+  for(let k=0;k<n;k++){
+    const f=3150+Math.random()*900;
+    cheep(t0+t,f,0.055+Math.random()*0.030,0.055+Math.random()*0.035);
+    t+=0.075+Math.random()*0.145;                          // uneven gaps
+  }
+}
+// fire a few calls across the arrival, once per pass through the cycle
+const CALL_MARKS=[0.80,0.97,1.16,1.42,1.70];
+let lastPhase=null, callFired=CALL_MARKS.map(()=>false);
+function updateCalls(ph){
+  // Was firing all five marks on frame 1 (lastPhase started at 0, phase at 2)
+  // while the audio context was still suspended — silent, then flagged as
+  // fired forever. Skip the first frame, and re-arm each mark once we are
+  // behind it again, so scrubbing and looping both work.
+  if(lastPhase===null){ lastPhase=ph; return; }
+  CALL_MARKS.forEach((m,k)=>{
+    if(ph<m-0.02){ callFired[k]=false; }
+    else if(!callFired[k]&&lastPhase<m&&ph>=m){ callFired[k]=true; tweet(); }
+  });
+  lastPhase=ph;
+}
+
+// ---- GROUND PLANE: the scene was floating on nothing ---------------------
+// A big earth-coloured disc under everything, fading into the fog at its rim
+// so there is no hard edge. Seasonally tinted and lit like the point cloud.
+let groundMat=null;
+{
+  const gy=leafMat.uniforms.uGround.value-0.04;
+  groundMat=new THREE.ShaderMaterial({
+    uniforms:{uSeason:{value:2},uStorm:{value:0},uFlash:{value:0},uGloom:{value:0},
+              uFog:{value:new THREE.Color(0x11151c)}},
+    vertexShader:`
+      varying vec2 vP;
+      void main(){ vP=position.xy; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader:`
+      uniform float uSeason,uStorm,uFlash,uGloom; uniform vec3 uFog;
+      varying vec2 vP;
+      void main(){
+        float r=length(vP);
+        vec3 earth=vec3(0.115,0.165,0.080);                 // park grass, not bare soil
+        float dry=smoothstep(1.4,2.4,uSeason)*(1.0-smoothstep(3.8,4.6,uSeason));
+        earth=mix(earth,vec3(0.215,0.220,0.105),dry*0.70);  // dries to a yellower green
+        float night=uSeason<2.0 ? 1.0-smoothstep(0.20,1.05,uSeason)
+                                : smoothstep(3.55,4.70,uSeason);
+        earth=mix(earth,earth*vec3(0.30,0.26,0.30),night*0.85);
+        float snow=uSeason<2.0 ? 1.0-smoothstep(0.10,0.85,uSeason)
+                               : smoothstep(4.10,4.70,uSeason);
+        earth=mix(earth,vec3(0.72,0.76,0.86),snow*0.80);
+        earth=mix(earth,earth*vec3(0.46,0.50,0.58),uGloom*0.80);
+        earth+=vec3(0.30,0.32,0.38)*uFlash*uStorm;
+        // only under the mound, and only a faint tint — this is filling a hole,
+        // not laying a floor
+        float a=0.30*(1.0-smoothstep(4.5,8.0,r));
+        if(a<0.01) discard;
+        gl_FragColor=vec4(earth,a);
+      }`,
+    transparent:true, depthWrite:false});
+  const gm=new THREE.Mesh(new THREE.CircleGeometry(12,64),groundMat);
+  gm.rotation.x=-Math.PI/2; gm.position.set(C[0],gy,C[2]);
+  gm.renderOrder=-1;
+  scene.add(gm); COVER_HIDE.push(gm);
+}
+
+// ---- RAIN: a late-summer storm, the one event summer was missing --------
+let rainMat=null;
+{
+  const N=34000;
+  const rp=new Float32Array(N*3), rs=new Float32Array(N);
+  for(let k=0;k<N;k++){
+    const a=Math.random()*Math.PI*2, rr=Math.sqrt(Math.random())*13;
+    rp[k*3]=C[0]+Math.cos(a)*rr; rp[k*3+1]=Math.random()*16-1; rp[k*3+2]=C[2]+Math.sin(a)*rr;
+    rs[k]=Math.random();
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(rp,3));
+  g.setAttribute('seed',new THREE.BufferAttribute(rs,1));
+  rainMat=new THREE.ShaderMaterial({
+    uniforms:{uStorm:{value:0},uTime:{value:0},uPx:{value:1},uWind:{value:0},uAmt:{value:0.55},
+              uGround:{value:leafMat.uniforms.uGround.value},uFlash:{value:0}},
+    vertexShader:`
+      uniform float uStorm,uTime,uPx,uWind,uGround,uFlash,uAmt;
+      attribute float seed; varying float vA;
+      void main(){
+        vec3 p=position;
+        float speed=9.0+seed*7.0;                 // rain falls FAST
+        float span=17.0;
+        float h=mod(p.y-uTime*speed,span);
+        p.y=uGround+0.02+h;
+        // slant scales with height, so the whole fall leans with the wind
+        p.x+=sin(uTime*0.5+seed*30.0)*0.30+uWind*h*0.62;
+        p.z+=cos(uTime*0.4+seed*17.0)*0.18+uWind*h*0.22;
+        // uAmt thins the shower out rather than just fading it
+        float keep=step(1.0-clamp(uAmt,0.0,1.0),seed*0.999+0.001);
+        vA=uStorm*(0.55+0.30*seed)*keep;
+        vec4 mv=modelViewMatrix*vec4(p,1.0);
+        gl_PointSize=clamp((0.014+seed*0.010)*uPx*clamp(uAmt,0.3,1.4)/-mv.z,0.8,5.0)*keep;
+        gl_Position=projectionMatrix*mv;
+      }`,
+    fragmentShader:`
+      uniform float uFlash; varying float vA;
+      void main(){
+        vec2 d=gl_PointCoord-0.5;
+        float a=vA*smoothstep(0.5,0.05,length(d));
+        if(a<0.02) discard;
+        gl_FragColor=vec4(mix(vec3(0.72,0.78,0.90),vec3(1.0),uFlash*0.7),a*0.80);
+      }`,
+    transparent:true,depthWrite:false});
+  const rain=new THREE.Points(g,rainMat);
+  rain.frustumCulled=false;
+  scene.add(rain); COVER_HIDE.push(rain);
+}
+// ---- LIGHTNING BOLTS: jagged strikes behind the treeline -----------------
+// Rendered as points along a zigzag path (WebGL line width is capped at 1 on
+// most drivers, so a point strip gives real thickness). Geometry is built once
+// with a seeded RNG, so the same bolt appears on the same strike every run.
+let boltMat=null, boltObjs=[];
+{
+  let sd=12345;
+  const rnd=()=>{ sd=(sd*1664525+1013904223)&0x7fffffff; return sd/0x7fffffff; };
+  for(let b=0;b<3;b++){
+    const pts=[];
+    const ang=(-0.5+b*0.55)+rnd()*0.3;         // different bearing per bolt
+    const dist=26+rnd()*10;
+    const bx=C[0]+Math.sin(ang)*dist, bz=C[2]-Math.cos(ang)*dist;
+    let x=bx, z=bz, y=17+rnd()*4;
+    const gy=leafMat.uniforms.uGround.value;
+    while(y>gy){
+      const step=0.35+rnd()*0.5;
+      for(let k=0;k<5;k++) pts.push(x,y-step*k/5,z);   // dense = thick strip
+      x+=(rnd()-0.5)*1.5; z+=(rnd()-0.5)*0.9; y-=step;
+      if(rnd()<0.07){                                   // a fork
+        let fx=x,fz=z,fy=y;
+        for(let f=0;f<10&&fy>gy;f++){
+          pts.push(fx,fy,fz);
+          fx+=(rnd()-0.5)*1.7; fz+=(rnd()-0.5)*1.0; fy-=0.4+rnd()*0.5;
+        }
+      }
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(pts),3));
+    const m=new THREE.ShaderMaterial({
+      uniforms:{uOn:{value:0},uPx:{value:1}},
+      vertexShader:`uniform float uOn,uPx; varying float vA;
+        void main(){ vA=uOn;
+          vec4 mv=modelViewMatrix*vec4(position,1.0);
+          gl_PointSize=clamp(0.16*uPx/-mv.z,2.0,26.0);
+          gl_Position=projectionMatrix*mv; }`,
+      fragmentShader:`varying float vA;
+        void main(){ vec2 d=gl_PointCoord-0.5;
+          float a=vA*smoothstep(0.5,0.0,length(d));
+          if(a<0.02) discard;
+          gl_FragColor=vec4(vec3(0.92,0.94,1.0),a); }`,
+      transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
+    const o=new THREE.Points(g,m); o.frustumCulled=false; scene.add(o); COVER_HIDE.push(o);
+    boltObjs.push({obj:o,mat:m});
+  }
+}
+
+// Storm sits in late summer. Flash times are a fixed function of phase, so a
+// PNG export reproduces the strikes exactly rather than re-rolling them.
+function heatAt(ph){
+  // the hot, still build-up — this is what the storm is a release FROM
+  return Math.max(0,Math.min(1,(ph-2.02)/0.24))*(1-Math.max(0,Math.min(1,(ph-2.30)/0.14)));
+}
+// SPRING places the storm before the leaves come — rain as the CAUSE of the
+// growth. SUMMER is the hot-day-breaks version, but it splits summer in two.
+const STORM_WIN={spring:[0.66,1.30],summer:[2.34,2.94],off:null};
+// spring = a soft shower: rain, only light overcast, NO thunder.
+// summer  = the full hot-day thunderstorm.
+const STORM_DRAMA={spring:0.26,summer:1.0,off:0};
+const STORM_THUNDER={spring:0.0,summer:1.0,off:0};
+function stormKind(){ return document.getElementById('stormwhen').value; }
+function stormWin(){ return STORM_WIN[document.getElementById('stormwhen').value]; }
+function stormAt(ph){
+  const w=stormWin(); if(!w) return 0;
+  const ramp=(w[1]-w[0])*0.26;
+  return Math.max(0,Math.min(1,(ph-w[0])/ramp))
+        *(1-Math.max(0,Math.min(1,(ph-(w[1]-ramp))/ramp)));
+}
+// strikes as fractions of the window, so they travel with it
+const STRIKE_F=[0.13,0.155,0.32,0.345,0.355,0.50,0.62];
+let flashIdx=0;
+function flashAt(ph){
+  const w=stormWin(); if(!w||!STORM_THUNDER[stormKind()]) return 0;
+  let f=0;
+  for(let k=0;k<STRIKE_F.length;k++){
+    const t0=w[0]+(w[1]-w[0])*STRIKE_F[k];
+    if(ph>=t0){ const v=Math.exp(-(ph-t0)*240); if(v>f){ f=v; flashIdx=k; } }
+  }
+  return f;
+}
+
+// ---- CHOREOGRAPHY: season phase follows the music's structure ------------
+// Keyframes are cumulative phase (app takes %5) so the night->dawn wrap
+// interpolates instead of popping. Beat grid drives accents in choreo mode.
+let choreo=null, choreoOn=false, beatIdx=0, beatPulse=0;
+const choreoSel=document.getElementById('choreo');
+fetch('assets/choreo/index.json'+'?v='+Date.now()).then(r=>r.json()).then(list=>{
+  for(const c of list){
+    const o=document.createElement('option'); o.value=c.file; o.textContent='🎼 '+c.label;
+    choreoSel.appendChild(o);
+  }
+}).catch(()=>{});
+function choreoPhase(ct){
+  const k=choreo.keys, scale=choreo.duration/(audioEl.duration||choreo.duration);
+  const x=ct*scale;
+  if(x<=k[0][0]) return k[0][1]%5;
+  for(let i=1;i<k.length;i++){
+    if(x<=k[i][0]){
+      const f=(x-k[i-1][0])/(k[i][0]-k[i-1][0]);
+      return (k[i-1][1]+(k[i][1]-k[i-1][1])*f)%5;
+    }
+  }
+  return k[k.length-1][1]%5;
+}
+let paceSpin=false, paceSmooth=1.0;
+const paceBtn=document.getElementById('pacespin');
+paceBtn.onclick=()=>{ paceSpin=!paceSpin; paceBtn.classList.toggle('on',paceSpin); };
+function paceAt(ct){
+  const pc=choreo&&choreo.pace; if(!pc) return 0.5;
+  const scale=choreo.duration/(audioEl.duration||choreo.duration), x=ct*scale;
+  if(x<=pc[0][0]) return pc[0][1];
+  for(let i=1;i<pc.length;i++){
+    if(x<=pc[i][0]){
+      const f=(x-pc[i-1][0])/(pc[i][0]-pc[i-1][0]);
+      return pc[i-1][1]+(pc[i][1]-pc[i-1][1])*f;
+    }
+  }
+  return pc[pc.length-1][1];
+}
+
+choreoSel.onchange=async()=>{
+  if(!choreoSel.value){ choreoOn=false; choreo=null; return; }
+  choreo=await (await fetch('assets/choreo/'+choreoSel.value+'?v='+Date.now())).json();
+  beatIdx=0; choreoOn=true;
+  if(!audioEl) document.getElementById('loadmusic').click();
+};
+
+let windGust=0.3, windTime=0;
+// ---- PNG SEQUENCE EXPORT -------------------------------------------------
+// Lossless, and rendered OFF the clock with a fixed timestep — no dropped
+// frames, no encoder competing with the renderer. Import the folder into
+// Premiere as an image sequence, or transcode to ProRes:
+//   ffmpeg -framerate 30 -i frame_%05d.png -c:v prores_ks -profile:v 3 out.mov
+let exporting=false;
+document.getElementById('seq').onclick=async(e)=>{
+  if(exporting){ exporting=false; return; }
+  if(!window.showDirectoryPicker){ alert('Needs Chrome/Edge (File System Access API).'); return; }
+  let dir; try{ dir=await window.showDirectoryPicker(); }catch(err){ return; }
+  const fps=30, rw=parseInt(document.getElementById('recres').value)||innerWidth;
+  const rh=Math.round(rw*innerHeight/innerWidth/2)*2;
+  const prevPR=renderer.getPixelRatio();
+  renderer.setPixelRatio(1); renderer.setSize(rw,rh,false);
+  camera.aspect=rw/rh; camera.updateProjectionMatrix();
+
+  exporting=true; setPlay(false);
+  t=0; elapsed=0; lastPhase=null;
+  loopAng=0;          // frame 0 renders the framing on screen, not a rotated one
+  const total=Math.round(TOTAL*fps);
+  e.target.classList.add('on');
+  for(let f=0;f<total&&exporting;f++){
+    elapsed=f/fps; t=phaseAt(elapsed); slider.value=t;
+    stepScene(1/fps);                        // fixed step: deterministic
+    const blob=await new Promise(r=>renderer.domElement.toBlob(r,'image/png'));
+    const fh=await dir.getFileHandle('frame_'+String(f).padStart(5,'0')+'.png',{create:true});
+    const w=await fh.createWritable(); await w.write(blob); await w.close();
+    e.target.textContent='⬛ '+Math.round(100*f/total)+'%';
+  }
+  exporting=false;
+  e.target.classList.remove('on'); e.target.textContent='⬛ PNG seq';
+  renderer.setPixelRatio(prevPR); renderer.setSize(innerWidth,innerHeight);
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+};
+
+// ---- LIVE WEATHER ---------------------------------------------------------
+// The real oak: Lloyd Park, Croydon. 51.366965, -0.076282
+// Open-Meteo, no key required. Maps real conditions onto the scene: sun height
+// from the actual time between sunrise and sunset, sky from cloud cover, rain
+// and wind at their real strength and direction.
+const SITE={lat:51.366965,lon:-0.076282,name:'Lloyd Park, Croydon'};
+let live=null;
+document.getElementById('live').onclick=async(e)=>{
+  const rep=document.getElementById('livereport');
+  if(live){ live=null; e.target.classList.remove('on'); rep.textContent=''; setPlay(true); return; }
+  rep.textContent='…';
+  try{
+    const u='https://api.open-meteo.com/v1/forecast?latitude='+SITE.lat+'&longitude='+SITE.lon
+      +'&current=temperature_2m,cloud_cover,precipitation,rain,showers,snowfall,'
+      +'wind_speed_10m,wind_direction_10m,is_day&daily=sunrise,sunset'
+      +'&timezone=Europe%2FLondon&forecast_days=1';
+    const j=await (await fetch(u)).json();
+    const c=j.current, d=j.daily;
+    const mins=t=>{ const x=new Date(t); return x.getHours()*60+x.getMinutes(); };
+    const now=mins(c.time), sr=mins(d.sunrise[0]), ss=mins(d.sunset[0]);
+    // day fraction 0..1 between sunrise and sunset; <0 or >1 means night
+    const dayF=(now-sr)/Math.max(ss-sr,1);
+    live={
+      cloud:c.cloud_cover/100,
+      rain:Math.min(1,(c.rain+c.showers)/2.5),
+      snow:Math.min(1,c.snowfall/1.5),
+      wind:Math.min(1.6,c.wind_speed_10m/22),
+      windDir:c.wind_direction_10m,
+      temp:c.temperature_2m,
+      dayF, isDay:c.is_day===1
+    };
+    // The phase axis is BOTH the year and the day, so a real timestamp cannot
+    // drive it alone — 8pm in July would land on autumn colours. Take the
+    // SEASON from the month, then nudge within that band by time of day.
+    const mo=new Date(c.time).getMonth();                 // 0=Jan
+    const BAND=[[4.30,4.75],[4.20,4.60],[0.55,1.10],[1.00,1.70],[1.60,2.20],
+                [2.00,2.60],[2.20,2.80],[2.40,2.95],[2.90,3.30],[3.15,3.55],
+                [3.55,4.05],[4.10,4.55]][mo];
+    const f=Math.min(1,Math.max(0,dayF));
+    let ph=BAND[0]+(BAND[1]-BAND[0])*(live.isDay?f:(now<sr?0:1));
+    if(!live.isDay && mo>=3 && mo<=8) ph=(now<sr)?0.30:3.85;   // summer nights are short
+    setPlay(false); t=ph; elapsed=elapsedAt(ph); slider.value=ph;
+    document.getElementById('windamt').value=(0.6+live.wind*2.0).toFixed(2);
+    document.getElementById('rainamt').value=(live.rain*1.6).toFixed(2);
+    e.target.classList.add('on');
+    rep.textContent=Math.round(live.temp)+'°C · '+Math.round(c.cloud_cover)+'% cloud · '
+      +Math.round(c.wind_speed_10m)+'km/h';
+  }catch(err){ rep.textContent='offline'; }
+};
+
+// music can play as a soundtrack without driving anything — off means the
+// scene runs on its own clock and the audio is purely something to listen to
+let reactive=true;
+document.getElementById('react').onclick=(e)=>{
+  reactive=!reactive; e.target.classList.toggle('on',reactive);
+};
+
+const clock=new THREE.Clock();
+function loop(){
+  requestAnimationFrame(loop);
+  if(exporting) return;              // exporter drives stepScene itself
+  const dt=clock.getDelta();
+  stepReveal(dt);                    // cover dissolve, scrubbed by scroll
+  stepScene(dt);
+}
+function stepScene(dt){
+  avgDt+=(Math.min(dt,1)-avgDt)*0.1;     // smoothed frame time, for the wheel hold
+  let audio=0;
+  if(analyser){
+    analyser.getByteFrequencyData(adata);
+    let bass=0; for(let i=1;i<12;i++)bass+=adata[i]; bass=bass/11/255;
+    let mid=0;  for(let i=12;i<60;i++)mid+=adata[i]; mid=mid/48/255;
+    // onset detection -> beat envelope, gives visual kicks
+    const onset=Math.max(0,bass-lastBass); lastBass=bass;
+    beatEnv=Math.max(beatEnv*0.90, onset*6.0);
+    audio=Math.min(1,beatEnv+bass*0.5);
+    if(!reactive) audio=0;
+    // musical energy smoothed -> how fast the year runs
+    tempo+= ((bass*0.7+mid*0.3) - tempo)*0.05;
+  }
+  if(choreoOn&&choreo&&audioEl&&!audioEl.paused){
+    // phase locked to the music's structure; beat grid fires accent pulses
+    t=choreoPhase(audioEl.currentTime); slider.value=t;
+    const bs=choreo.beats, ct=audioEl.currentTime*(choreo.duration/(audioEl.duration||choreo.duration));
+    while(beatIdx<bs.length&&bs[beatIdx]<=ct){ beatPulse=1.0; beatIdx++; }
+    if(beatIdx>0&&bs[beatIdx-1]>ct+0.5) beatIdx=0;   // track was seeked back
+    beatPulse*=Math.exp(-dt*6.0);
+    if(reactive) audio=Math.min(1,audio+beatPulse*0.45);
+  } else {
+    // music energy speeds the year up; silence (or no audio) runs at natural pace
+    const rate = (audioOn&&reactive) ? 0.35+tempo*2.6 : 1.0;
+    if(playing&&!exporting){elapsed+=dt*rate; t=phaseAt(elapsed); slider.value=t;}
+  }
+  if(audioEl && !seeking){
+    apos.value=audioEl.currentTime;
+    atime.textContent=fmt(audioEl.currentTime)+' / '+fmt(audioEl.duration);
+  }
+  // gl_PointSize is in FRAMEBUFFER pixels. Point apparent size = size/bufferH
+  // must stay constant so brightness/saturation match on screen and in exports.
+  // Divide the buffer height by the DISPLAY pixel ratio the live look was tuned
+  // at (NOT renderer.getPixelRatio() — Record forces that to 1, which blew the
+  // points up on hi-dpi). PR0 is fixed, so live == record at every dpi.
+  const PR0=Math.min(devicePixelRatio,2);
+  const px=(renderer.domElement.height/PR0)*1.1*(camera.projectionMatrix.elements[5]??2);
+  // during the reveal the cloud is held back and let in as the last stage —
+  // the wordmark particles are exempt (see the keep test in the shaders), so
+  // what you see below 0.72 is only them
+  const dens=parseFloat(densityEl.value)*(REVEAL.committed?1:REVEAL.densify);
+  // wind: a gentle base breeze, gusting with the music. Leaves in summer feel
+  // it most; bare winter branches barely move.
+  const leafy=Math.max(0,Math.min(1,(t-0.9)/0.8))*(1-Math.max(0,Math.min(1,(t-3.7)/0.5)));
+  windGust+=((0.30+audio*1.35)-windGust)*(1-Math.exp(-dt*1.1));
+  const windMul=parseFloat(document.getElementById('windamt').value);
+  const wind=windGust*(0.45+0.55*leafy)*windMul*(1.0+stormAt(t)*1.6);
+  { const wr=document.getElementById('windread');
+    if(wr) wr.textContent=wind.toFixed(2); }   // live value: proves it is running
+  windTime+=dt*(0.7+windGust*0.8);
+  const storm=stormAt(t), flash=flashAt(t), heat=heatAt(t);
+  let gloom=storm*STORM_DRAMA[stormKind()];
+  if(live){ gloom=Math.max(gloom,live.cloud*0.55); }   // real overcast
+  // must precede the mats loop
+  for(const m of mats){m.uniforms.uSeason.value=t; m.uniforms.uPx.value=px;
+    if(m.uniforms.uTime) m.uniforms.uTime.value=windTime;
+    if(m.uniforms.uWind) m.uniforms.uWind.value=wind;
+    if(m.uniforms.uStorm){ m.uniforms.uStorm.value=storm; m.uniforms.uFlash.value=flash; }
+    if(m.uniforms.uGloom) m.uniforms.uGloom.value=gloom;
+    if(m.uniforms.uHaze) m.uniforms.uHaze.value.copy(scene.fog.color).multiplyScalar(0.62);
+    if(m.uniforms.uLift) m.uniforms.uLift.value=parseFloat(document.getElementById('liftamt').value);
+    if(m.uniforms.uHeat) m.uniforms.uHeat.value=heat;
+    m.uniforms.uAudio.value=audio; m.uniforms.uDensity.value=dens;
+    if(m.uniforms.uCentre) m.uniforms.uCentre.value.set(C[0],C[2]);}
+  skyMat.uniforms.uSeason.value=t; skyMat.uniforms.uAudio.value=audio;
+  skyMat.uniforms.uStorm.value=storm; skyMat.uniforms.uFlash.value=flash;
+  skyMat.uniforms.uHeat.value=heat; skyMat.uniforms.uGloom.value=gloom;
+  if(groundMat){ groundMat.uniforms.uSeason.value=t; groundMat.uniforms.uStorm.value=storm;
+    groundMat.uniforms.uFlash.value=flash; groundMat.uniforms.uGloom.value=gloom;
+    groundMat.uniforms.uFog.value.copy(scene.fog.color); }
+  for(let b=0;b<boltObjs.length;b++){
+    // only the bolt matching this strike lights, and only during the storm
+    boltObjs[b].mat.uniforms.uOn.value=(flashIdx%3===b)?flash*storm:0;
+    boltObjs[b].mat.uniforms.uPx.value=px;
+  }
+  if(rainMat){ rainMat.uniforms.uStorm.value=storm; rainMat.uniforms.uFlash.value=flash;
+    rainMat.uniforms.uPx.value=px; rainMat.uniforms.uTime.value=windTime;
+    rainMat.uniforms.uWind.value=wind;
+    rainMat.uniforms.uAmt.value=parseFloat(document.getElementById('rainamt').value);
+    if(live) rainMat.uniforms.uStorm.value=Math.max(storm,live.rain); }
+  if(birdMat){ birdMat.uniforms.uSeason.value=t; birdMat.uniforms.uPx.value=px;
+    birdMat.uniforms.uTime.value+=dt; birdMat.uniforms.uCen.value.set(C[0],0,C[2]);
+    const m=camera.matrixWorld.elements;
+    birdMat.uniforms.uCamPos.value.copy(camera.position);
+    birdMat.uniforms.uCamRight.value.set(m[0],0,m[2]).normalize();
+    birdMat.uniforms.uCamFwd.value.set(-m[8],0,-m[10]).normalize();
+    birdMat.uniforms.uToCam.value.set(camera.position.x-C[0],0,camera.position.z-C[2]).normalize(); }
+  // fog tracks the sky's horizon colour so the dissolve edge blends in
+  {
+    const ss=x=>Math.max(0,Math.min(1,x));
+    const sn=(t>2.0)? ss((t-3.95)/0.80) : 1-ss((t-0.15)/0.80);
+    const wm=ss((t-3.15)/0.60)*(1-ss((t-4.00)/0.70));
+    const su=ss((t-0.35)/1.40)*(1-ss((t-2.85)/0.40));
+    const au=ss((t-2.90)/0.35)*(1-ss((t-3.55)/0.50));
+    const s=Math.max(sn+wm+su+au,1e-4);
+    const r=(0.99*wm+0.030*sn+1.00*su+0.86*au)/s;
+    const g=(0.60*wm+0.038*sn+0.80*su+0.62*au)/s;
+    const b=(0.52*wm+0.055*sn+0.48*su+0.34*au)/s;
+    scene.fog.color.setRGB(r*0.66,g*0.64,b*0.66);   // neutral, not brown
+    scene.fog.density=0.028*(1.0-0.74*su)*(1.0+0.5*sn);   // summer air stays CLEAR
+  }
+  if(typeof snowMat!=='undefined'){snowMat.uniforms.uSeason.value=t; snowMat.uniforms.uPx.value=px;
+    snowMat.uniforms.uAudio.value=audio; snowMat.uniforms.uTime.value+=dt;}
+  updateCalls(t);
+  lbl.textContent=nameFor(t);
+  if(homeGlide>0){
+    const k=1-Math.exp(-dt*3.4);
+    controls.target.lerp(HOME_TGT,k);
+    const off=camera.position.clone().sub(controls.target);
+    const r=off.length();
+    const theta=Math.atan2(off.x,off.z);              // azimuth: LEFT ALONE
+    let phi=Math.acos(Math.max(-1,Math.min(1,off.y/r)));
+    const nr=r+(HOME_DIST-r)*k;
+    phi=phi+(HOME_PHI-phi)*k;
+    const sp=Math.sin(phi);
+    camera.position.set(
+      controls.target.x+nr*sp*Math.sin(theta),
+      controls.target.y+nr*Math.cos(phi),
+      controls.target.z+nr*sp*Math.cos(theta));
+    homeGlide-=dt;                                     // always ends
+    if(homeGlide<=0){ homeGlide=0; ANCHOR.copy(HOME_TGT); }
+  }
+  if(homeGlide===0) controls.target.lerp(ANCHOR,1-Math.exp(-dt*4.0));
+  smoothZoom(dt);
+  if(loopLock){
+    // authoritative, not a one-time set: autoRotate must stay off for the
+    // whole locked render or its per-frame drift creeps back into the loop
+    controls.autoRotate=false;
+    // exact: rotate by the delta the cycle position asks for, not by a rate
+    const want=loopWant(), d=want-loopAng; loopAng=want;
+    const ox=camera.position.x-controls.target.x, oz=camera.position.z-controls.target.z;
+    const c=Math.cos(d), s=Math.sin(d);
+    camera.position.x=controls.target.x+ox*c+oz*s;
+    camera.position.z=controls.target.z-ox*s+oz*c;
+  } else {
+    let sp=parseFloat(spinEl.value);
+    if(paceSpin&&choreo&&choreo.pace&&audioEl&&!audioEl.paused){
+      // music's local tempo scales the spin: languid passages drift,
+      // driving passages whip. smoothed so it glides, never jerks.
+      const target=0.25+paceAt(audioEl.currentTime)*2.2;
+      paceSmooth+=(target-paceSmooth)*(1-Math.exp(-dt*1.6));
+      sp*=paceSmooth;
+    }
+    controls.autoRotateSpeed=sp;
+  }
+  controls.update();
+  renderer.render(scene,camera);
+}
+loop();
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+
+// ---- INFO PANEL ----------------------------------------------------------
+if(matchMedia('(hover:none) and (pointer:coarse)').matches)
+  document.getElementById('hint').innerHTML='drag orbit &middot; pinch zoom';
+const infoBtn=document.getElementById('infobtn'), infoPanel=document.getElementById('info');
+infoBtn.onclick=e=>{ e.stopPropagation(); infoPanel.classList.toggle('open'); };
+addEventListener('pointerdown',e=>{
+  if(infoPanel.classList.contains('open')&&!infoPanel.contains(e.target)&&e.target!==infoBtn)
+    infoPanel.classList.remove('open');
+});
+addEventListener('keydown',e=>{ if(e.code==='Escape') infoPanel.classList.remove('open'); });
+
+// ---- READY / COMMIT ------------------------------------------------------
+// Everything above has already awaited the splat loads, so reaching here means
+// the geometry is in: swap "loading…" for the scroll affordance.
+const TRACK='music/married-life-toms-mucenieks-piano.mp3';
+// PRELOAD the score now — the 76MB of splats are already in, so nothing
+// competes — and at commit it starts from an in-memory blob with no network
+// stall. SCORE_IN skips the recording's dead air: first piano onset measured
+// at 4.95s (50ms RMS blocks over the decoded waveform), start just under it
+// so the attack isn't clipped.
+const SCORE_IN=4.6;
+let trackURL=TRACK;
+fetch(TRACK).then(r=>r.arrayBuffer()).then(async ab=>{
+  trackURL=URL.createObjectURL(new Blob([ab],{type:'audio/mpeg'}));
+  // decode a copy too: an <audio> element needs user activation to start,
+  // but a WebAudio buffer on an ALREADY-RUNNING context does not — that is
+  // the overture path in startScore when autoplay is refused.
+  try{ const ctx=ensureCtx(); scoreBuf=await ctx.decodeAudioData(ab.slice(0)); }catch(e){}
+}).catch(()=>{});
+const soundBtn=document.getElementById('sound');
+setPlay(false);                       // the year holds still behind the cover
+REVEAL.ready=true; REVEAL.scene=true;
+barfill.style.width='100%';
+
+// Hand the wordmark over from the DOM to the splats. Both are the same text in
+// the same place, so a short crossfade reads as the type resolving into grain
+// rather than as one thing being swapped for another.
+if(!REDUCE&&!REVEAL.committed){
+  gstat.textContent='composing the wordmark…';
+  // measure only after the fonts have really settled — a Range measured
+  // against a fallback font put the splat copy a few px off the DOM card
+  try{ await document.fonts.ready; }catch(e){}
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  try{
+    if(buildWordmark()){
+      skyMat.uniforms.uDark.value=1;
+      REVEAL.letters=true;
+      updateLetterPlane();
+      // NO crossfade here: the DOM card keeps the wordmark until the scroll
+      // starts, and stepReveal sequences the handoff (DOM out first, splats
+      // in after) — the two copies are never on screen together, so a
+      // registration miss can no longer read as a double exposure.
+    }
+  }catch(err){ console.warn('wordmark morph unavailable, falling back to the plain cover',err); }
+}
+loadline.classList.add('done');
+setTimeout(()=>{ loadline.style.display='none'; },900);
+enterBtn.classList.add('ready');
+enterBtn.focus({preventScroll:true});
+
+// Starting the score is the one thing a scroll cannot do for us: a wheel is
+// not a user activation, so play() may be refused. Try it, and if the browser
+// says no put a real button on screen rather than leaving it silently mute.
+// The scripted choreography is NOT auto-engaged: its journey starts at 4.7
+// (deep winter night), so snapping to it right after the reveal yanked the
+// scene from summer daylight into the dark — "it jumps to winter just after
+// start". The reveal lands on summer and the year drifts on smoothly from
+// there (music energy still paces it); the full scripted journey stays one
+// deliberate click away in the 🎼 menu.
+// BEGIN's gesture work: create the score's element NOW and bless it with a
+// muted play/pause inside the click. A media element that has once played
+// under a real gesture keeps its own activation, so the commit's play() —
+// however long the scroll takes — succeeds outright. try/catch also covers
+// the click-during-download case, where these consts don't exist yet; the
+// overture and pill fallbacks still stand behind it.
+function primeScore(){
+  try{
+    if(audioEl) return;
+    useAudio(trackURL,'Married Life (Up) — Toms Mucenieks',false,SCORE_IN);
+    audioEl.muted=true;
+    audioEl.play().then(()=>{
+      audioEl.muted=false;
+      // reduced motion commits in the SAME click: the prime must not pause
+      // the very playback the commit just asked for — unmute and let it run
+      if(REVEAL.committed){
+        try{ if(audioEl.currentTime<SCORE_IN-0.05) audioEl.currentTime=SCORE_IN; }catch(e){}
+        aplay.textContent='❚❚';
+        return;
+      }
+      audioEl.pause();
+      try{ if(audioEl.currentTime<SCORE_IN-0.05) audioEl.currentTime=SCORE_IN; }catch(e){}
+    }).catch(()=>{ audioEl.muted=false; });
+  }catch(e){}
+}
+function startScore(){
+  const finish=()=>{
+    let playing=audioEl&&!audioEl.paused;
+    // Element refused (should be unreachable now that BEGIN primes it) —
+    // if any gesture unlocked the AudioContext, WebAudio needs no
+    // permission: play the decoded score as an overture and hand the
+    // element the reins at the next gesture (armScoreRetry syncs position).
+    if(!playing&&scoreBuf&&actx&&actx.state==='running'){
+      try{
+        const src=actx.createBufferSource(); src.buffer=scoreBuf;
+        if(analyser) src.connect(analyser);      // reactivity sees it too
+        src.connect(masterGain);
+        src.start(0,SCORE_IN);
+        overture={src,t0:actx.currentTime};
+        aplay.textContent='❚❚';
+        playing=true;
+      }catch(e){}
+    }
+    soundBtn.classList.toggle('show',!playing);
+    if(!playing||overture) armScoreRetry();
+  };
+  if(audioEl){   // primed at BEGIN: same element, activation already carried
+    try{ if(audioEl.currentTime<SCORE_IN-0.05) audioEl.currentTime=SCORE_IN; }catch(e){}
+    return audioEl.play().then(()=>{ aplay.textContent='❚❚'; })
+                         .catch(()=>{}).then(finish);
+  }
+  return useAudio(trackURL,'Married Life (Up) — Toms Mucenieks',true,SCORE_IN).then(finish);
+}
+// A wheel is not a user activation, so a scroll-only visitor lands with the
+// score refused and only the pill to show for it. Arm the FIRST real gesture
+// after that — any click, key or touch (an orbit drag counts) — to start the
+// music without them having to find the pill.
+let scoreArmed=false;
+function armScoreRetry(){
+  if(scoreArmed) return; scoreArmed=true;
+  const off=()=>{ for(const ev of ['pointerdown','keydown','touchstart'])
+    removeEventListener(ev,go); };
+  const go=()=>{
+    if(!audioEl||!audioEl.paused){ off(); return; }
+    ensureCtx();
+    if(audioEl.error||audioEl.readyState===0) audioEl.load();
+    // pick up exactly where the overture has got to, else at the entry point
+    const pos=overture?SCORE_IN+(actx.currentTime-overture.t0):SCORE_IN;
+    try{ if(Math.abs(audioEl.currentTime-pos)>0.05) audioEl.currentTime=pos; }catch(e){}
+    audioEl.play().then(()=>{
+      if(overture){ try{ overture.src.stop(); }catch(e){} overture=null; }
+      aplay.textContent='❚❚'; soundBtn.classList.remove('show'); off();
+    }).catch(()=>{});          // still refused: stay armed for the next gesture
+  };
+  for(const ev of ['pointerdown','keydown','touchstart']) addEventListener(ev,go);
+}
+soundBtn.onclick=()=>{
+  ensureCtx();
+  // a refused autoplay often leaves the media load aborted; nudge it first
+  if(!audioEl) return;
+  if(audioEl.error||audioEl.readyState===0) audioEl.load();
+  if(audioEl.currentTime<SCORE_IN-0.05){ try{ audioEl.currentTime=SCORE_IN; }catch(e){} }
+  audioEl.play().then(()=>{
+    aplay.textContent='❚❚'; soundBtn.classList.remove('show');
+  }).catch(()=>{});
+};
+// Commit must FEEL like arrival, not a stop: the year starts running, the
+// tree starts its slow idle turn, and the score comes in. Without the spin
+// the end of the runway read as "nothing is happening".
+REVEAL.onCommit=()=>{
+  setPlay(true);
+  if(!REDUCE){
+    controls.autoRotate=true;
+    controls.autoRotateSpeed=parseFloat(spinEl.value);
+    document.getElementById('orbit').classList.add('on');
+  }
+  startScore();
+};
+if(REVEAL.committed) REVEAL.onCommit();   // scrolled all the way through while loading
+
+// console handle for poking the piece (and for the automated checks) —
+// nothing inside the piece reads this
+window.__pot={REVEAL,camera,controls,renderer,geos:[gW,gL],
+  get audio(){return audioEl;},
+  get windSfx(){return windSfx;},
+  get score(){return {elPlaying:!!(audioEl&&!audioEl.paused),overture:!!overture,
+    ctx:actx?actx.state:null};},
+  get wheel(){return {hold:wheelHold,last:lastWheelT,avgDt};}};
+</script>
+</body>
+</html>

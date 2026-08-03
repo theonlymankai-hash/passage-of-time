@@ -1,0 +1,3 @@
+bake.py
+*.log
+node_modules/
