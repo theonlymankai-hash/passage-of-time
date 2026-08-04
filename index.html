@@ -56,7 +56,28 @@
      swallowed its clicks. Lift them, and keep them out of the cover: they
      fade in when the reveal commits. */
   #ui,#hint{z-index:20;transition:opacity .8s ease}
-  body.cover #ui,body.cover #hint{opacity:0;pointer-events:none}
+  body.cover #ui,body.cover #hint,body.cover #foldwrap{opacity:0;pointer-events:none}
+  /* ---- FOLDABLE BAR: the control stack buried the tree on a phone, so the
+     bar slides off-screen and a small pill brings it back. Folded is the
+     phone default; desktop opens unfolded but folds for clean viewing.
+     transform only — the cover fade above still owns opacity, and a fixed
+     element sliding below the viewport can never cause a layout jump. */
+  #ui{transition:opacity .8s ease,transform .2s ease}
+  #ui.folded{transform:translateY(110%);pointer-events:none}
+  #foldwrap{position:fixed;left:12px;bottom:10px;z-index:21;display:flex;gap:8px;
+    align-items:center;transition:opacity .8s ease,bottom .2s ease}
+  #uifold{background:#151b24cc;border:1px solid #3a4656;color:#cfd6df;
+    border-radius:14px;padding:6px 12px;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;opacity:.75}
+  #uifold:hover{opacity:1}
+  /* the one control worth keeping while folded: the music's play/pause */
+  #miniplay{display:none;width:30px;height:30px;padding:0;border-radius:50%;
+    background:#151b24cc;border:1px solid #3a4656;opacity:.75;font-size:11px}
+  #ui.folded~#foldwrap #miniplay{display:block}
+  @media (prefers-reduced-motion:reduce){
+    #ui{transition:opacity .8s ease}
+    #foldwrap{transition:opacity .8s ease}
+  }
   /* phones: the export chain (record / PNG seq / resolution / mic / file pick)
      is desktop studio work. Hiding it hands roughly a third of a 375px screen
      back to the tree, which is what people came for. */
@@ -257,6 +278,11 @@
     <button id="seq" title="lossless PNG frame sequence for Premiere / ProRes">⬛ PNG seq</button>
     <span class="sub" id="track"></span>
   </div>
+</div>
+<!-- must stay the NEXT SIBLING of #ui: the miniplay reveal rides #ui.folded~ -->
+<div id="foldwrap">
+  <button id="uifold" title="show / hide the controls">&equiv; controls</button>
+  <button id="miniplay" title="play / pause the music" disabled>&#9654;</button>
 </div>
 <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
 <script type="module">
@@ -776,6 +802,61 @@ addEventListener('keydown',e=>{
   }
 });
 if(REDUCE){ document.body.classList.remove('cover'); }
+
+// ---- FOLDABLE CONTROLS ----------------------------------------------------
+// On a phone the full stack covered the bottom ~40% of the screen — the tree
+// is the point, so coarse-pointer / narrow screens start FOLDED behind a
+// small pill. Desktop starts open, folds for clean viewing. The choice
+// sticks (localStorage). The pill fades in with the cover-commit exactly as
+// the bar does — #foldwrap shares the body.cover opacity rule — so the
+// reveal flow is untouched: folded on mobile just means the HANDLE arrives.
+{
+  const uiEl=document.getElementById('ui'),
+        foldWrap=document.getElementById('foldwrap'),
+        foldBtn=document.getElementById('uifold'),
+        mini=document.getElementById('miniplay'),
+        aplayEl=document.getElementById('aplay');
+  const FOLD_KEY='potUIFold';
+  const COARSE=matchMedia('(pointer:coarse)').matches;
+  let stored=null;
+  try{ stored=localStorage.getItem(FOLD_KEY); }catch(e){}
+  let folded=stored!==null ? stored==='1' : (COARSE||innerWidth<=700);
+  function applyFold(){
+    uiEl.classList.toggle('folded',folded);
+    foldBtn.innerHTML=folded?'&equiv; controls':'&#9662; hide';
+    // unfolded, the pill perches just above the bar instead of on top of it
+    foldWrap.style.bottom=folded?'10px':(uiEl.offsetHeight+8)+'px';
+  }
+  function setFold(v){
+    folded=v;
+    try{ localStorage.setItem(FOLD_KEY,v?'1':'0'); }catch(e){}
+    applyFold();
+  }
+  foldBtn.onclick=()=>setFold(!folded);
+  // the bar re-wraps on resize; keep the perch honest
+  new ResizeObserver(()=>{ if(!folded) foldWrap.style.bottom=(uiEl.offsetHeight+8)+'px'; })
+    .observe(uiEl);
+  applyFold();
+  // touch: a TAP on the tree folds the bar away (a drag is an orbit, a pinch
+  // is a zoom — both must survive, so only a short still touch counts)
+  if(COARSE){
+    let tx=0,ty=0,tt=0;
+    renderer.domElement.addEventListener('pointerdown',e=>{
+      tx=e.clientX; ty=e.clientY; tt=performance.now();
+    });
+    renderer.domElement.addEventListener('pointerup',e=>{
+      if(folded||!REVEAL.committed) return;
+      if(performance.now()-tt<350 && Math.hypot(e.clientX-tx,e.clientY-ty)<12)
+        setFold(true);
+    });
+  }
+  // mini play/pause simply IS the bar's #aplay: click through, mirror state
+  mini.onclick=()=>aplayEl.click();
+  const mirror=()=>{ mini.textContent=aplayEl.textContent; mini.disabled=aplayEl.disabled; };
+  new MutationObserver(mirror)
+    .observe(aplayEl,{childList:true,attributes:true,attributeFilter:['disabled']});
+  mirror();
+}
 
 const manifest=await (await fetch('assets/manifest.json'+'?v='+Date.now())).json();
 // tree runs y -0.85 (ground) to +2.15 (canopy top), height 3.0.
