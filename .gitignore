@@ -1,3 +1,6 @@
 bake.py
+reorder.js
+assets/_orig/
 *.log
 node_modules/
+video_*.mp4
