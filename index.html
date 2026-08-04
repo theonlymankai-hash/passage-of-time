@@ -73,12 +73,13 @@
      affordance. The DOM card exists only because the type has to be on screen
      before 80MB of point cloud has arrived to draw it. */
   canvas{position:fixed;top:0;left:0}     /* out of flow: the scroll runway must not push it */
-  #runway{display:none;height:250vh;width:1px}
+  #runway{display:none;height:150vh;width:1px}
   body.cover{overflow-y:scroll;overflow-x:hidden}
   body.cover #runway{display:block}
   /* CLICK TO BEGIN: until the first click the page cannot scroll at all, so
      the morph cannot start without the gesture that unlocks the audio. The
-     click arms it; scrolling then drives everything exactly as before. */
+     click arms it and the reveal then PLAYS ITSELF; a wheel or touch at any
+     point takes the scrub over by hand, exactly as it always worked. */
   body.wait{overflow:hidden}
   body.wait #cover{cursor:pointer}
   /* no scrollbar gutter during the cover: the canvas is sized to innerWidth,
@@ -449,7 +450,11 @@ const band=(x,a,b)=>ease((x-a)/(b-a));                   // ramp between two poi
 // cached, and only recomputed when the WIDTH changes: on phones the URL bar
 // retracting during the very gesture we are tracking changes innerHeight, and
 // recomputing mid-scrub made the dissolve jump.
-let RD=Math.max(320,innerHeight*1.35), RW=innerWidth;
+// 0.45 viewport-heights end to end — ONE comfortable wheel-spin. It was 1.35
+// ("more than one full spin"), which suited a scroll-driven cover; now that
+// BEGIN plays the reveal itself, the manual runway only has to feel right
+// when someone grabs it mid-flight.
+let RD=Math.max(320,innerHeight*0.45), RW=innerWidth;
 function revealDist(){ return RD; }
 if(history.scrollRestoration) history.scrollRestoration='manual';
 scrollTo(0,0);
@@ -473,7 +478,7 @@ addEventListener('resize',()=>{
   // desktop: track BOTH dimensions. The width-only guard exists for phones,
   // where the URL bar retracting mid-gesture changes innerHeight and a
   // recompute made the scrub jump.
-  if(innerWidth!==RW||!TOUCHY){ RW=innerWidth; RD=Math.max(320,innerHeight*1.35); }
+  if(innerWidth!==RW||!TOUCHY){ RW=innerWidth; RD=Math.max(320,innerHeight*0.45); }
   readScroll();
   // resized (or browser zoom / DPR change — those fire resize too) while the
   // wordmark still matters: re-measure the DOM card and rebuild the letter
@@ -670,8 +675,12 @@ for(const ev of ['pointerdown','keydown','touchstart'])
   addEventListener(ev,windStart,{passive:true});
 function windUpdate(dt,p){
   // gust follows how fast the hand is actually scrubbing
-  const v=Math.abs(REVEAL.raw-windSfxRaw)/Math.max(dt,1e-3);
+  let v=Math.abs(REVEAL.raw-windSfxRaw)/Math.max(dt,1e-3);
   windSfxRaw=REVEAL.raw;
+  // AUTO-PLAY: the tween scrubs far slower than a hand ever would, so its
+  // velocity is lifted to hand speed and given a slow surge — the flight
+  // keeps its air, breathing through the whole reveal instead of whispering
+  if(autoScroll) v*=2.6*(0.8+0.2*Math.sin(performance.now()*0.0012));
   windSfxVel+=(v-windSfxVel)*(1-Math.exp(-dt*3));
   if(!windSfx) return;
   const amt=band(p,0.10,0.32)*(1-band(p,0.86,1.0));
@@ -684,20 +693,17 @@ function windUpdate(dt,p){
 // guaranteed user gesture, so it unlocks the AudioContext (wind), primes the
 // media element with a muted play/pause (the element then carries its own
 // activation and the commit's play() succeeds for everyone), and releases
-// the scroller. Nothing auto-advances — the morph stays scroll-driven.
+// the scroller. Then the reveal PLAYS ITSELF — BEGIN is just a button. The
+// scrub is still fully there: wheel or touch at any moment hands it over.
 function arm(){
   if(REVEAL.armed) return;
   REVEAL.armed=true;
   document.body.classList.remove('wait');
   windStart();                       // gesture: audio unlocked
   primeScore();                      // gesture: the score's element blessed
-  enterBtn.classList.add('armed');   // the down-arrow appears
-  const s=document.getElementById('enterlbl');
-  if(s) s.textContent='scroll';
-  enterBtn.title='scroll, swipe or press ↓';
 }
-// a click ANYWHERE on the cover is the click
-cover.addEventListener('click',()=>{ if(!REVEAL.armed) enter(); });
+// a click ANYWHERE on the cover is the click (and later, the resume)
+cover.addEventListener('click',()=>enter());
 // wheel before the click: hold firm, let the affordance answer
 let _nudgeT=0;
 addEventListener('wheel',()=>{
@@ -707,20 +713,49 @@ addEventListener('wheel',()=>{
   _nudgeT=setTimeout(()=>enterBtn.classList.remove('nudge'),650);
 },{passive:true});
 
-// keyboard / click / tap: no continuous input to track, so ease the scroll
-// offset itself to the end — the same scrubbed path, just driven for them.
-let autoScroll=null;
-function enter(){
-  if(REVEAL.committed) return;
-  if(!REVEAL.armed){ arm(); if(!REDUCE) return; }   // first press = the click
-  if(REDUCE){ commitReveal(); return; }             // reduced motion: straight in
-  const d=revealDist(), from=scrollY, t0=performance.now(), dur=1700;
-  autoScroll=()=>{
+// ---- AUTO-PLAY: the reveal drives itself ---------------------------------
+// No new pathway: the tween eases the SCROLL OFFSET to the end of the runway,
+// so readScroll -> raw -> stepReveal -> wind all run exactly as if a hand were
+// scrubbing — just an unhurried one. Cancelling mid-flight simply stops
+// writing scrollTo; the page is already at the right offset and native scroll
+// carries on from there, both directions.
+let autoScroll=null;                 // the active tween's step fn, or null
+const AUTO_DUR=7500;                 // full 0->1, ms — the piece is unhurried
+function startAutoPlay(){
+  const d=Math.min(revealDist(),
+    Math.max(1,document.documentElement.scrollHeight-innerHeight));
+  const from=scrollY, t0=performance.now();
+  // resuming after a hand-scrub keeps the same PACE over what remains,
+  // with a floor so the last few percent still land softly
+  const dur=Math.max(1400,AUTO_DUR*Math.max(0,d-from)/d);
+  const step=()=>{
+    if(autoScroll!==step) return;                     // taken over by hand
+    if(REVEAL.committed){ autoScroll=null; return; }  // done
     const k=Math.min(1,(performance.now()-t0)/dur);
     scrollTo(0,from+(d-from)*ease(k));
-    if(k<1) requestAnimationFrame(autoScroll); else autoScroll=null;
+    if(k<1) requestAnimationFrame(step); else autoScroll=null;
   };
-  requestAnimationFrame(autoScroll);
+  autoScroll=step;
+  requestAnimationFrame(step);
+}
+// wheel or touch DURING the auto-play hands the reveal to the hand: the tween
+// dies, the native cover scroll scrubs from exactly where it was. A click,
+// tap, Enter or Space resumes the flight to the end from wherever they left it.
+function handOver(){
+  if(!autoScroll||REVEAL.committed) return;
+  autoScroll=null;
+  enterBtn.classList.add('armed');   // the down-arrow: this is scrub mode now
+  const s=document.getElementById('enterlbl');
+  if(s) s.textContent='scroll';
+  enterBtn.title='scroll or swipe — or click to play on';
+}
+addEventListener('wheel',handOver,{passive:true});
+addEventListener('touchstart',handOver,{passive:true});
+function enter(){
+  if(REVEAL.committed) return;
+  if(!REVEAL.armed) arm();                          // first press = the click
+  if(REDUCE){ commitReveal(); return; }             // reduced motion: straight in
+  if(!autoScroll) startAutoPlay();                  // begin, or resume
 }
 // The render loop cannot start until 80MB of geometry has arrived, so the
 // cover gets its own ticker until then. Without it, scrolling during the
@@ -2401,6 +2436,7 @@ if(REVEAL.committed) REVEAL.onCommit();   // scrolled all the way through while 
 // console handle for poking the piece (and for the automated checks) —
 // nothing inside the piece reads this
 window.__pot={REVEAL,camera,controls,renderer,geos:[gW,gL],
+  get auto(){return !!autoScroll;},
   get audio(){return audioEl;},
   get windSfx(){return windSfx;},
   get score(){return {elPlaying:!!(audioEl&&!audioEl.paused),overture:!!overture,
