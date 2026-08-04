@@ -121,6 +121,19 @@
     padding:24px;box-sizing:border-box}
   #cover h1{margin:0;font:300 clamp(24px,6.2vw,64px)/1.15 system-ui,sans-serif;
     letter-spacing:.30em;text-transform:uppercase;color:#e6ecf4;text-indent:.30em}
+  /* THE TITLE MUST FIT. On a 412px phone "PASSAGE OF TIME" overran the card
+     and the third word was lost off the edge. Three things now guarantee it:
+     each run is its own unbreakable line box, narrow screens STACK the runs
+     ("PASSAGE OF" / "TIME" — bigger type, better read), and fitWordmark()
+     measures what actually landed and shrinks the type if it still overruns.
+     The splat copy is drawn run by run off these same boxes (buildWordmark),
+     so the morph follows whatever the layout settles on. */
+  #cover h1 .ln{white-space:nowrap}
+  @media (max-width:700px){
+    #coverin{padding:16px;gap:14px}
+    #cover h1{font-size:clamp(21px,8.2vw,40px);letter-spacing:.26em;text-indent:.26em}
+    #cover h1 .ln{display:block}
+  }
   #cover .who{font:500 clamp(10px,1.05vw,13px)/1 system-ui,sans-serif;letter-spacing:.30em;
     text-transform:uppercase;color:#e6ecf4;opacity:.5}
   #coverui{position:absolute;left:0;right:0;top:63%;display:flex;justify-content:center;
@@ -137,6 +150,38 @@
   #enter svg{stroke:#8fb85e;animation:bob 2.6s ease-in-out infinite;visibility:hidden}
   #enter.armed svg{visibility:visible}
   @keyframes bob{0%,100%{transform:translateY(-2px);opacity:.5}50%{transform:translateY(4px);opacity:1}}
+
+  /* ---- GESTURE HINTS: the flight is a wait, so use it ----------------------
+     While the wind carries the word (and, on a slow line, while the park is
+     still arriving) the piece says quietly what your hands can do. NOT on the
+     pre-BEGIN cover — that stays clean type. It breathes twice and goes: two
+     pulses is enough to be noticed and not enough to nag. Low contrast,
+     bottom of frame, pointer-events:none — it can never block or catch. */
+  #gesture{position:fixed;left:0;right:0;bottom:96px;z-index:45;display:none;
+    flex-direction:column;align-items:center;gap:10px;padding:0 12px;
+    pointer-events:none;opacity:0;transition:opacity 1.1s ease}
+  #gesture.show{display:flex;opacity:.44}
+  #gesture.out{opacity:0}
+  #gesture .grow{display:flex;align-items:center;gap:9px;color:#dbe3ec;
+    font:400 11px/1 system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase;
+    white-space:nowrap;opacity:.62;text-shadow:0 1px 9px rgba(4,7,11,.9)}
+  #gesture .grow svg{flex:none;stroke:currentColor;fill:none;
+    stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;opacity:.85;
+    /* the reduced-motion path shows these over the committed daylight scene —
+       the shadow is what keeps them readable there without raising contrast */
+    filter:drop-shadow(0 1px 6px rgba(4,7,11,.85))}
+  #gesture.touch .grow[data-for=desk],#gesture.desk .grow[data-for=touch]{display:none}
+  /* the two breaths */
+  #gesture.show .grow{animation:ghint 3.2s ease-in-out 2}
+  #gesture.show .grow:nth-child(2){animation-delay:.45s}
+  @keyframes ghint{0%,100%{opacity:.55}50%{opacity:1}}
+  /* reduced motion: same words, no breathing */
+  #gesture.still .grow{animation:none;opacity:.9}
+  @media (prefers-reduced-motion:reduce){ #gesture .grow{animation:none} }
+  @media (max-width:700px){
+    #gesture{bottom:92px;gap:9px}
+    #gesture .grow{font-size:10px;letter-spacing:.16em;gap:8px}
+  }
 
   /* load readout lives OUTSIDE the cover: if someone starts scrolling before
      the splats land, the reveal still runs and this still tells the truth. */
@@ -185,7 +230,7 @@
   <!-- the DOM wordmark only stands in while the splats download; once they are
        here the splats draw it themselves and this crossfades away -->
   <div id="coverin">
-    <h1>Passage of Time</h1>
+    <h1><span class="ln">Passage of</span> <span class="ln">Time</span></h1>
     <div class="who">Mank Ai</div>
   </div>
   <div id="coverui">
@@ -194,6 +239,38 @@
       <svg width="17" height="11" viewBox="0 0 17 11" fill="none" stroke-width="1.6"
            stroke-linecap="round" stroke-linejoin="round"><path d="M1.4 1.6 8.5 9 15.6 1.6"/></svg>
     </button>
+  </div>
+</div>
+<!-- gesture guidance, shown only DURING the flight. Both variants ship; the
+     pointer type picks one (see gestureInit) so there is no icon font, no
+     external asset and nothing to load. -->
+<div id="gesture" aria-hidden="true">
+  <div class="grow" data-for="touch">
+    <svg viewBox="0 0 20 20" width="19" height="19">
+      <circle cx="10" cy="10" r="1.15"/>
+      <path d="M6.7 6.7 3.3 3.3M3.3 3.3h3.2M3.3 3.3v3.2"/>
+      <path d="M13.3 13.3l3.4 3.4M16.7 16.7h-3.2M16.7 16.7v-3.2"/>
+    </svg>
+    <span>pinch to zoom</span>
+  </div>
+  <div class="grow" data-for="touch">
+    <!-- rotate-device: the phone, and the turn -->
+    <svg viewBox="0 0 26 20" width="26" height="20">
+      <rect x="9.7" y="3.6" width="6.6" height="12.8" rx="1.4"/>
+      <path d="M11.9 14.6h2.2"/>
+      <path d="M6.4 5.9A8.6 8.6 0 0 0 3.9 11.6"/>
+      <path d="M1.9 9.5 3.9 12.1 6.2 10.4"/>
+      <path d="M19.6 14.1A8.6 8.6 0 0 0 22.1 8.4"/>
+      <path d="M24.1 10.5 22.1 7.9 19.8 9.6"/>
+    </svg>
+    <span>rotate for a wider view</span>
+  </div>
+  <div class="grow" data-for="desk">
+    <svg viewBox="0 0 20 20" width="16" height="16">
+      <path d="M10 3.2a6.8 6.8 0 0 1 0 13.6 6.8 6.8 0 0 1 0-13.6z"/>
+      <path d="M10 3.2c2.1 2.6 2.1 11 0 13.6M3.4 8.2h13.2M3.4 11.8h13.2"/>
+    </svg>
+    <span>drag to orbit &middot; scroll to zoom</span>
   </div>
 </div>
 <div id="loadline"><div id="bar"><div id="barfill"></div></div><div id="gstat">loading&hellip;</div></div>
@@ -473,6 +550,66 @@ let PART=-1, LBOX=null;    // participation threshold + wordmark box, set at rea
 const COVER_HIDE=[];
 document.body.classList.add('cover','wait');   // wait = held until the BEGIN click
 
+// ---- THE TITLE ALWAYS FITS ------------------------------------------------
+// CSS gets it close (clamp + the stacked narrow layout), but a clamp cannot
+// know how wide system-ui actually draws PASSAGE OF at .26em on THIS phone —
+// and when it overran, the card simply lost the last word off the edge.
+// So: measure the widest line box that really landed and, if it is still over
+// the card's usable width, scale the type down to fit. Cheap, runs only on
+// layout changes, and buildWordmark calls it first so the splat copy is
+// always measured against the final layout.
+function fitWordmark(){
+  const h1=document.querySelector('#cover h1');
+  if(!h1) return;
+  h1.style.fontSize='';                       // always re-fit from the CSS clamp
+  const cs=getComputedStyle(coverIn);
+  const avail=coverIn.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);
+  if(!(avail>0)) return;
+  const h1cs=getComputedStyle(h1), fs=parseFloat(h1cs.fontSize);
+  const rng=document.createRange();
+  rng.selectNodeContents(h1);
+  // client rects come per text run; runs sharing a top are ONE line, and it is
+  // the line that has to fit — measuring runs alone would miss the single-line
+  // desktop layout entirely (two runs, one line).
+  const byLine=new Map();
+  for(const r of rng.getClientRects()){
+    if(r.width<0.5) continue;
+    const k=Math.round(r.top), g=byLine.get(k)||{l:1e9,r:-1e9};
+    g.l=Math.min(g.l,r.left); g.r=Math.max(g.r,r.right); byLine.set(k,g);
+  }
+  let w=0; for(const g of byLine.values()) w=Math.max(w,g.r-g.l);
+  w+=parseFloat(h1cs.textIndent)||0;          // the indent eats width too
+  if(w>avail) h1.style.fontSize=Math.max(13,fs*(avail/w)*0.99)+'px';
+}
+fitWordmark();
+// fonts settle after first paint; re-fit when they do
+try{ document.fonts.ready.then(fitWordmark); }catch(e){}
+
+// ---- GESTURE HINTS --------------------------------------------------------
+// Shown DURING the flight only. Two gentle breaths, then gone — and held a
+// beat longer while the park is still streaming, because that is exactly the
+// wait they are covering. Commit always ends them (within ~2s).
+const gestureEl=document.getElementById('gesture');
+gestureEl.classList.add(
+  matchMedia('(hover:none) and (pointer:coarse)').matches?'touch':'desk');
+let gShown=false, gTimer=0;
+function gestureShow(){
+  if(gShown||REVEAL.committed||!gestureEl) return;
+  gShown=true;
+  if(REDUCE) gestureEl.classList.add('still');
+  gestureEl.classList.add('show');
+  // still downloading: the hints ARE the loading screen, so give them longer
+  let streaming=false;
+  try{ streaming=!(LW.done&&LL.done); }catch(e){ streaming=true; }
+  gTimer=setTimeout(gestureHide,REDUCE?5200:(streaming?11000:7000));
+}
+function gestureHide(){
+  if(!gShown||gestureEl.classList.contains('out')) return;
+  clearTimeout(gTimer);
+  gestureEl.classList.add('out');
+  setTimeout(()=>gestureEl.classList.remove('show'),1300);
+}
+
 const ease=x=>x<=0?0:x>=1?1:x*x*(3-2*x);                 // smoothstep
 const band=(x,a,b)=>ease((x-a)/(b-a));                   // ramp between two points
 // cached, and only recomputed when the WIDTH changes: on phones the URL bar
@@ -506,7 +643,8 @@ addEventListener('resize',()=>{
   // desktop: track BOTH dimensions. The width-only guard exists for phones,
   // where the URL bar retracting mid-gesture changes innerHeight and a
   // recompute made the scrub jump.
-  if(innerWidth!==RW||!TOUCHY){ RW=innerWidth; RD=Math.max(320,innerHeight*0.45); }
+  if(innerWidth!==RW||!TOUCHY){ RW=innerWidth; RD=Math.max(320,innerHeight*0.45);
+    if(!REVEAL.committed) fitWordmark(); }   // the card re-fits before it is re-measured
   readScroll();
   // resized (or browser zoom / DPR change — those fire resize too) while the
   // wordmark still matters: re-measure the DOM card and rebuild the letter
@@ -556,6 +694,8 @@ function stepReveal(dt){
     coverBase.style.opacity=1-band(p,0.06,0.62);
   }
   windUpdate(dt,p);                     // the flight's air, gusting with the scrub
+  // the gust has taken the word: say what your hands can do while it travels
+  if(!gShown&&p>0.09) gestureShow();
   // everything below needs the scene, which does not exist until the splats
   // land — before that this tick is only keeping the cover honest.
   if(!REVEAL.scene) return;
@@ -649,6 +789,8 @@ function commitReveal(){
     for(const o of COVER_HIDE) o.visible=true;
   }
   cover.style.display='none';
+  // the hints belong to the wait, not to the piece — arrival ends them
+  if(gShown&&!REDUCE) setTimeout(gestureHide,900);
   // hand the page back and UNHOOK the reveal completely: no runway, no
   // scroller, no scroll->progress mapping. From here the piece behaves as if
   // the cover never existed — drag orbits, wheel is the original dolly. The
@@ -801,7 +943,8 @@ addEventListener('touchstart',handOver,{passive:true});
 function enter(){
   if(REVEAL.committed) return;
   if(!REVEAL.armed) arm();                          // first press = the click
-  if(REDUCE){ commitReveal(); return; }             // reduced motion: straight in
+  // reduced motion: straight in — the hints still get their say, held still
+  if(REDUCE){ gestureShow(); commitReveal(); return; }
   if(!autoScroll) startAutoPlay();                  // begin, or resume
 }
 // The render loop cannot start until 80MB of geometry has arrived, so the
@@ -889,7 +1032,11 @@ const C=manifest.center; controls.target.set(C[0],0.55,C[2]);
 // (6.5,1.35,8.0) is tightened per aspect: portrait keeps a touch more
 // distance so the crown's width still clears a narrow frame. Zoom/orbit
 // clamps are untouched — this only moves where the piece STARTS.
-const HOME_K=innerWidth/innerHeight<1?0.72:0.58;
+// Portrait was 0.72 and the crown was touching the top and side edges of a
+// phone — the tree filled the frame with nothing to breathe into. 0.86 is a
+// modest step back (~20% more distance, 7.5 -> 8.9): still the dominant
+// subject, now with air at the crown and clear of the sides.
+const HOME_K=innerWidth/innerHeight<1?0.86:0.58;
 camera.position.set(C[0]+6.5*HOME_K,0.55+1.35*HOME_K,C[2]+8.0*HOME_K);
 HOME_POS.copy(camera.position); HOME_TGT.set(C[0],0.55,C[2]);
 ANCHOR_HOME.copy(HOME_TGT); ANCHOR.copy(HOME_TGT);
@@ -1447,13 +1594,26 @@ GATE.hero=true;
 //                     rescales with the viewport without re-uploading 16MB.
 const WORD_N=272000;   // particles the wordmark wants — the weight it was tuned at
 function buildWordmark(){
-  // 1. draw the type, oversampled, laid out like the DOM card it replaces
+  // 1. draw the type, oversampled, laid out like the DOM card it replaces.
+  //    RUN BY RUN, because the title stacks to two lines on a narrow phone:
+  //    one fillText across the union box drew "TIME" clean off the canvas.
+  //    Each .ln span is one unwrappable line box, so a run is always a line.
+  fitWordmark();                       // measure the layout we are about to copy
   const h1=document.querySelector('#cover h1'), who=document.querySelector('#cover .who');
   const rng=document.createRange();
-  rng.selectNodeContents(h1); const r1=rng.getBoundingClientRect();
-  rng.selectNodeContents(who); const r2=rng.getBoundingClientRect();
-  const L=Math.min(r1.left,r2.left), R=Math.max(r1.right,r2.right);
-  const T=r1.top, B=r2.bottom;
+  const els=[...h1.querySelectorAll('.ln')];
+  if(!els.length) els.push(h1);        // no spans (older markup): the h1 is the run
+  els.push(who);
+  const runs=[];
+  for(const el of els){
+    rng.selectNodeContents(el);
+    const r=rng.getBoundingClientRect();
+    if(r.width<1||r.height<1) continue;
+    runs.push({txt:el.textContent.trim().toUpperCase(),cs:getComputedStyle(el),rect:r});
+  }
+  if(!runs.length) return false;
+  const L=Math.min(...runs.map(p=>p.rect.left)), R=Math.max(...runs.map(p=>p.rect.right));
+  const T=Math.min(...runs.map(p=>p.rect.top)), B=Math.max(...runs.map(p=>p.rect.bottom));
   const SC=Math.max(2,Math.min(4,2200/Math.max(1,R-L)));   // oversample factor
   const cv=document.createElement('canvas');
   cv.width=Math.ceil((R-L)*SC); cv.height=Math.ceil((B-T)*SC);
@@ -1485,8 +1645,7 @@ function buildWordmark(){
       for(const ch of txt){ x2.fillText(ch,ax,py); ax+=x2.measureText(ch).width+tr; }
     }
   };
-  drawTracked(h1.textContent.trim().toUpperCase(),getComputedStyle(h1),r1);
-  drawTracked(who.textContent.trim().toUpperCase(),getComputedStyle(who),r2);
+  for(const p of runs) drawTracked(p.txt,p.cs,p.rect);
   // 2. every inked pixel becomes a candidate, sorted left to right
   const im=x2.getImageData(0,0,cv.width,cv.height).data;
   const us=[],vs=[];
@@ -2213,9 +2372,17 @@ function choreoPhase(ct){
   }
   return k[k.length-1][1]%5;
 }
-let paceSpin=false, paceSmooth=1.0;
+// ON by default: the turn breathing with the score is how the piece is meant
+// to be seen, and nobody should have to find a button for it. A remembered
+// choice still wins. It only ever scales the CAMERA's spin — the year clock
+// and the summer landing are untouched, so there is no winter jump in here.
+const PACE_KEY='potPace';
+let paceSpin=true, paceSmooth=1.0, paceRef=0;
 const paceBtn=document.getElementById('pacespin');
-paceBtn.onclick=()=>{ paceSpin=!paceSpin; paceBtn.classList.toggle('on',paceSpin); };
+try{ const s=localStorage.getItem(PACE_KEY); if(s!==null) paceSpin=s==='1'; }catch(e){}
+paceBtn.classList.toggle('on',paceSpin);
+paceBtn.onclick=()=>{ paceSpin=!paceSpin; paceBtn.classList.toggle('on',paceSpin);
+  try{ localStorage.setItem(PACE_KEY,paceSpin?'1':'0'); }catch(e){} };
 function paceAt(ct){
   const pc=choreo&&choreo.pace; if(!pc) return 0.5;
   const scale=choreo.duration/(audioEl.duration||choreo.duration), x=ct*scale;
@@ -2489,10 +2656,27 @@ function stepScene(dt){
     camera.position.z=controls.target.z-ox*s+oz*c;
   } else {
     let sp=parseFloat(spinEl.value);
-    if(paceSpin&&choreo&&choreo.pace&&audioEl&&!audioEl.paused){
+    if(paceSpin&&audioEl&&!audioEl.paused){
       // music's local tempo scales the spin: languid passages drift,
       // driving passages whip. smoothed so it glides, never jerks.
-      const target=0.25+paceAt(audioEl.currentTime)*2.2;
+      // With a choreography loaded that curve is the authority; on the default
+      // free path there is none, so the LIVE energy stands in — otherwise
+      // "pace on" was a lit button that did nothing at all.
+      // Measured against its OWN slow average, not an absolute level: the
+      // first cut read 0.7 flat off this recording and simply pinned the spin
+      // at double speed. Relative, it sits centred on the slider's value and
+      // drifts either side of it with the music — and it self-calibrates to
+      // whatever track someone loads.
+      let target=1.0;
+      if(choreo&&choreo.pace) target=0.25+paceAt(audioEl.currentTime)*2.2;
+      else if(reactive){
+        if(paceRef<=0) paceRef=Math.max(0.02,tempo);
+        paceRef+=(tempo-paceRef)*(1-Math.exp(-dt*0.09));      // ~11s memory
+        // narrow band on purpose: the score opens on a long swell, so the
+        // ratio runs high for the first minute whatever the memory length.
+        // 0.65x-1.4x is a drift you feel rather than a gear change.
+        target=Math.max(0.65,Math.min(1.4,0.55+0.45*(tempo/Math.max(0.02,paceRef))));
+      }
       paceSmooth+=(target-paceSmooth)*(1-Math.exp(-dt*1.6));
       sp*=paceSmooth;
     }
@@ -2684,6 +2868,8 @@ window.__pot={REVEAL,camera,controls,renderer,geos:[gW,gL],
     v:+skyMat.uniforms.uStorm.value.toFixed(3),
     heat:+skyMat.uniforms.uHeat.value.toFixed(3)};},
   get auto(){return !!autoScroll;},
+  get pace(){return {on:paceSpin,tempo:+tempo.toFixed(3),smooth:+paceSmooth.toFixed(3),
+    spin:+controls.autoRotateSpeed.toFixed(3)};},
   get audio(){return audioEl;},
   get windSfx(){return windSfx;},
   get score(){return {elPlaying:!!(audioEl&&!audioEl.paused),overture:!!overture,
