@@ -64,26 +64,57 @@
      element sliding below the viewport can never cause a layout jump. */
   #ui{transition:opacity .8s ease,transform .2s ease}
   #ui.folded{transform:translateY(110%);pointer-events:none}
-  #foldwrap{position:fixed;left:12px;bottom:10px;z-index:21;display:flex;gap:8px;
+  /* THE HANDLE is the only way back to the controls on a phone, and it sits
+     over a render that swings from pale sky to bright grass — a quiet dark
+     pill simply vanished into it ("barely actionable", said the author). So:
+     48px targets, type you can read at arm's length, a near-solid fill with
+     a blur and a dark halo so it separates from ANY season, and the piece's
+     green on the border and the label. Green BORDER, not a green button —
+     the register stays quiet, the eye still finds it. */
+  #foldwrap{position:fixed;left:12px;bottom:10px;z-index:21;display:flex;gap:10px;
     align-items:center;transition:opacity .8s ease,bottom .2s ease}
-  #uifold{background:#151b24cc;border:1px solid #3a4656;color:#cfd6df;
-    border-radius:14px;padding:6px 12px;font-size:11px;letter-spacing:.14em;
-    text-transform:uppercase;opacity:.75}
-  #uifold:hover{opacity:1}
+  #foldwrap button{background:#0d1219f0;border:1px solid #7ea845b3;color:#cfe0ab;
+    box-shadow:0 3px 14px #00000073,0 0 0 1px #00000040;opacity:1;
+    -webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px)}
+  #foldwrap button:hover{background:#16202bf5;border-color:#a6cf6e;color:#e2eecb}
+  #uifold{min-height:48px;border-radius:24px;padding:0 18px;
+    font:600 13px/1 system-ui,sans-serif;letter-spacing:.15em;text-transform:uppercase}
   /* the one control worth keeping while folded: the music's play/pause */
-  #miniplay{display:none;width:30px;height:30px;padding:0;border-radius:50%;
-    background:#151b24cc;border:1px solid #3a4656;opacity:.75;font-size:11px}
+  #miniplay{display:none;width:48px;height:48px;padding:0;border-radius:50%;
+    font-size:15px;line-height:1}
   #ui.folded~#foldwrap #miniplay{display:block}
+  /* ONE breath after the reveal commits, then it is furniture. Fired from
+     REVEAL.onCommit (announceControls) and the class is dropped on
+     animationend, so it can never loop. */
+  #foldwrap.call button{animation:foldcall 1.9s ease-in-out 1}
+  @keyframes foldcall{
+    0%,100%{border-color:#7ea845b3;box-shadow:0 3px 14px #00000073,0 0 0 1px #00000040}
+    45%{border-color:#a6cf6e;box-shadow:0 3px 14px #00000073,0 0 18px 3px #7ea8454d}}
   @media (prefers-reduced-motion:reduce){
     #ui{transition:opacity .8s ease}
     #foldwrap{transition:opacity .8s ease}
+    #foldwrap.call button{animation:none}
   }
-  /* phones: the export chain (record / PNG seq / resolution / mic / file pick)
-     is desktop studio work. Hiding it hands roughly a third of a 375px screen
-     back to the tree, which is what people came for. */
+  /* phones: the export chain (record / PNG seq / resolution / mic) is desktop
+     studio work. Hiding it hands roughly a third of a 375px screen back to
+     the tree, which is what people came for.
+     THE FILE PICKER IS NOT PART OF THAT. It went out with the export chain
+     and took the piece's strongest interaction with it — playing the tree
+     with your OWN music — on the devices where most people meet it. It comes
+     back as the loudest thing in the transport row: 48px thumb, its own
+     label, the piece's green. */
   @media (max-width:700px){
-    #ui{max-height:44vh}
-    #rec,#seq,#recres,#mic,#loadmusic,#birdsfx{display:none}
+    /* 44vh clipped the transport row off a short phone (360x640: content 359
+       against a 282 cap) — the picker hung half off the bottom edge and had
+       to be scrolled for INSIDE the bar. The cap only bites when the content
+       is taller than it, and the bar is only on screen because someone asked
+       for it, so 58vh costs the tree nothing and makes every row reachable. */
+    #ui{max-height:58vh}
+    #rec,#seq,#recres,#mic,#birdsfx{display:none}
+    #loadmusic{display:inline-flex;align-items:center;min-height:48px;
+      padding:0 15px;font-size:12.5px;font-weight:600;letter-spacing:.05em;
+      background:#141d26;border-color:#7ea845b3;color:#cfe0ab;border-radius:24px}
+    #aplay,#mute{min-height:44px;min-width:44px}
     #hint{font-size:10.5px;max-width:62vw;line-height:1.3}
   }
 
@@ -204,13 +235,22 @@
 
   @media (prefers-reduced-motion:reduce){ #enter svg,#sound.show{animation:none} }
 
-  /* ---- INFO: quiet "i", quiet panel. The piece is the point. ---- */
-  #infobtn{position:fixed;top:9px;right:12px;z-index:30;width:24px;height:24px;
-    line-height:22px;text-align:center;border-radius:50%;border:1px solid #3a4656;
-    background:#151b24cc;color:#cfd6df;font-size:12px;font-style:italic;
-    cursor:pointer;opacity:.5;padding:0}
-  #infobtn:hover{opacity:1}
-  #info{position:fixed;top:42px;right:12px;z-index:30;width:min(330px,calc(100vw - 24px));
+  /* ---- INFO: quiet "i", quiet panel. The piece is the point. ----
+     Same problem as the handle: a 24px half-transparent dot over a bright
+     sky was neither findable nor tappable. Same backing, same halo, same
+     44px thumb — but no accent label and no pulse: it is a footnote, not an
+     invitation. It stays at half strength over the cover, where the title
+     is the only thing that should be talking. */
+  #infobtn{position:fixed;top:10px;right:12px;z-index:30;width:44px;height:44px;
+    line-height:42px;text-align:center;border-radius:50%;border:1px solid #7ea84580;
+    background:#0d1219f0;color:#dfe8d3;font-size:16px;font-style:italic;
+    cursor:pointer;opacity:.92;padding:0;
+    box-shadow:0 3px 14px #00000073,0 0 0 1px #00000040;
+    -webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);
+    transition:opacity .8s ease}
+  #infobtn:hover{opacity:1;border-color:#a6cf6e}
+  body.cover #infobtn{opacity:.42}
+  #info{position:fixed;top:62px;right:12px;z-index:30;width:min(330px,calc(100vw - 24px));
     background:#0d1219f2;border:1px solid #2a3444;border-radius:5px;
     padding:15px 17px;display:none;line-height:1.62;box-sizing:border-box}
   #info.open{display:block}
@@ -281,8 +321,10 @@
   <p>A single oak in Lloyd Park, Croydon, photographed across a year and reconstructed
      as a 3D gaussian splat. It loops seamlessly through the seasons.</p>
   <p class="credit">
-    Music: <em>Married Life</em> from <em>Up</em> — composed by Michael Giacchino,
-    performed by <a href="https://www.youtube.com/@TomsMucenieks" target="_blank" rel="noopener">Toms Mucenieks</a>.<br><br>
+    <!-- swapped out by setMusicCredit() the moment a visitor loads their own
+         track: crediting Giacchino over somebody else's music is wrong -->
+    <span id="musiccredit">Music: <em>Married Life</em> from <em>Up</em> — composed by Michael Giacchino,
+    performed by <a href="https://www.youtube.com/@TomsMucenieks" target="_blank" rel="noopener">Toms Mucenieks</a>.</span><br><br>
     <a href="https://mankai.art" target="_blank" rel="noopener">Mank Ai — mankai.art</a><br>
     Sibling work: <a href="https://eclipse.mankai.art" target="_blank" rel="noopener">eclipse.mankai.art</a>
   </p>
@@ -332,7 +374,7 @@
     <button id="pacespin" title="spin speed follows the music's tempo">♪ pace</button>
   </div>
   <div class="row">
-    <button id="loadmusic">♪ Load track</button>
+    <button id="loadmusic" title="play the tree with your own music">♪ Your track</button>
     <input id="file" type="file" accept="audio/*" style="display:none">
     <button id="aplay" disabled>▶</button>
     <input id="apos" type="range" min="0" max="1" step="0.0001" value="0" style="flex:1;accent-color:#c88">
@@ -974,6 +1016,9 @@ if(REDUCE){ document.body.classList.remove('cover'); }
 // sticks (localStorage). The pill fades in with the cover-commit exactly as
 // the bar does — #foldwrap shares the body.cover opacity rule — so the
 // reveal flow is untouched: folded on mobile just means the HANDLE arrives.
+// announceControls() is the one-shot "I am here" breath, called from
+// REVEAL.onCommit once the .8s fade has landed. Set below, no-op until then.
+let announceControls=()=>{};
 {
   const uiEl=document.getElementById('ui'),
         foldWrap=document.getElementById('foldwrap'),
@@ -1020,6 +1065,18 @@ if(REDUCE){ document.body.classList.remove('cover'); }
   new MutationObserver(mirror)
     .observe(aplayEl,{childList:true,attributes:true,attributeFilter:['disabled']});
   mirror();
+  // one breath, once, after the fade — then the class is gone for good and
+  // the pill is static furniture. Never on a second commit, never in reduce.
+  let called=false;
+  announceControls=()=>{
+    if(called||REDUCE) return;
+    called=true;
+    setTimeout(()=>{
+      foldWrap.classList.add('call');
+      foldWrap.addEventListener('animationend',
+        ()=>foldWrap.classList.remove('call'),{once:true});
+    },1400);
+  };
 }
 
 const manifest=await (await fetch('assets/manifest.json'+'?v='+Date.now())).json();
@@ -1896,8 +1953,22 @@ function useAudio(url,label,autoplay,startAt){
                                     .catch(()=>{ aplay.textContent='▶'; });
   return Promise.resolve();
 }
+// A VISITOR'S OWN TRACK OUTRANKS THE BUNDLED SCORE. Once one is loaded the
+// score logic must let go completely: no seeking to the score's 4.6s cue, no
+// retry arming, no "sound" pill — and the Giacchino credit comes off, which
+// is a correctness matter, not a courtesy. userTrack is that latch.
+let userTrack=false;
+const creditEl=document.getElementById('musiccredit');
+function setMusicCredit(name){
+  if(!creditEl) return;
+  creditEl.textContent='Music: your own track — '+
+    (name.length>42?name.slice(0,40)+'…':name)+'.';
+}
 fileEl.onchange=()=>{
   const f=fileEl.files[0]; if(!f) return;
+  userTrack=true;
+  setMusicCredit(f.name);
+  document.getElementById('sound').classList.remove('show');  // their track is the music now
   useAudio(URL.createObjectURL(f),f.name,true);
 };
 aplay.onclick=()=>{
@@ -2765,7 +2836,7 @@ enterBtn.focus({preventScroll:true});
 // overture and pill fallbacks still stand behind it.
 function primeScore(){
   try{
-    if(audioEl) return;
+    if(audioEl||userTrack) return;
     useAudio(trackURL,'Married Life (Up) — Toms Mucenieks',false,SCORE_IN);
     audioEl.muted=true;
     audioEl.play().then(()=>{
@@ -2783,6 +2854,13 @@ function primeScore(){
   }catch(e){}
 }
 function startScore(){
+  // their music, not ours: never seek it to SCORE_IN, never arm the retry
+  // against it, never show the score's pill. Just make sure it is playing.
+  if(userTrack){
+    if(audioEl&&audioEl.paused)
+      audioEl.play().then(()=>{ aplay.textContent='❚❚'; }).catch(()=>{});
+    return Promise.resolve();
+  }
   const finish=()=>{
     let playing=audioEl&&!audioEl.paused;
     // Element refused (should be unreachable now that BEGIN primes it) —
@@ -2820,7 +2898,9 @@ function armScoreRetry(){
   const off=()=>{ for(const ev of ['pointerdown','keydown','touchstart'])
     removeEventListener(ev,go); };
   const go=()=>{
-    if(!audioEl||!audioEl.paused){ off(); return; }
+    // a track of their own arrived while we were armed: stand down entirely,
+    // or the next tap would yank their music to the score's cue
+    if(userTrack||!audioEl||!audioEl.paused){ off(); return; }
     ensureCtx();
     if(audioEl.error||audioEl.readyState===0) audioEl.load();
     // pick up exactly where the overture has got to, else at the entry point
@@ -2838,7 +2918,7 @@ soundBtn.onclick=()=>{
   // a refused autoplay often leaves the media load aborted; nudge it first
   if(!audioEl) return;
   if(audioEl.error||audioEl.readyState===0) audioEl.load();
-  if(audioEl.currentTime<SCORE_IN-0.05){ try{ audioEl.currentTime=SCORE_IN; }catch(e){} }
+  if(!userTrack&&audioEl.currentTime<SCORE_IN-0.05){ try{ audioEl.currentTime=SCORE_IN; }catch(e){} }
   audioEl.play().then(()=>{
     aplay.textContent='❚❚'; soundBtn.classList.remove('show');
   }).catch(()=>{});
@@ -2854,6 +2934,8 @@ REVEAL.onCommit=()=>{
     document.getElementById('orbit').classList.add('on');
   }
   startScore();
+  // and the handle says hello, once, so the piece reads as playable
+  announceControls();
 };
 if(REVEAL.committed) REVEAL.onCommit();   // scrolled all the way through while loading
 
@@ -2874,6 +2956,12 @@ window.__pot={REVEAL,camera,controls,renderer,geos:[gW,gL],
   get windSfx(){return windSfx;},
   get score(){return {elPlaying:!!(audioEl&&!audioEl.paused),overture:!!overture,
     ctx:actx?actx.state:null};},
+  get music(){return {user:userTrack,label:trackLbl.textContent,
+    credit:creditEl?creditEl.textContent.trim().slice(0,46):null,
+    playing:!!(audioEl&&!audioEl.paused),
+    cur:audioEl?+audioEl.currentTime.toFixed(2):null,
+    dur:audioEl&&isFinite(audioEl.duration)?+audioEl.duration.toFixed(2):null,
+    reactive:!!(analyser&&audioOn),vol:masterGain?+masterGain.gain.value.toFixed(2):null};},
   get wheel(){return {hold:wheelHold,last:lastWheelT,avgDt};}};
 </script>
 </body>
