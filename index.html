@@ -71,18 +71,36 @@
      a blur and a dark halo so it separates from ANY season, and the piece's
      green on the border and the label. Green BORDER, not a green button —
      the register stays quiet, the eye still finds it. */
-  #foldwrap{position:fixed;left:12px;bottom:10px;z-index:21;display:flex;gap:10px;
+  #foldwrap{position:fixed;left:12px;bottom:10px;z-index:21;display:flex;gap:8px;
     align-items:center;transition:opacity .8s ease,bottom .2s ease}
   #foldwrap button{background:#0d1219f0;border:1px solid #7ea845b3;color:#cfe0ab;
     box-shadow:0 3px 14px #00000073,0 0 0 1px #00000040;opacity:1;
     -webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px)}
   #foldwrap button:hover{background:#16202bf5;border-color:#a6cf6e;color:#e2eecb}
-  #uifold{min-height:48px;border-radius:24px;padding:0 18px;
-    font:600 13px/1 system-ui,sans-serif;letter-spacing:.15em;text-transform:uppercase}
-  /* the one control worth keeping while folded: the music's play/pause */
-  #miniplay{display:none;width:48px;height:48px;padding:0;border-radius:50%;
-    font-size:15px;line-height:1}
-  #ui.folded~#foldwrap #miniplay{display:block}
+  /* the label is "MENU", not "CONTROLS": with three round buttons beside it
+     the longer word pushed the row to 88% of a 360px screen, which stops
+     being a handle and starts being a control bar again. The word only has
+     to say "there is something here" — the peek has already shown what. */
+  #uifold{min-height:48px;border-radius:24px;padding:0 16px;
+    font:600 12.5px/1 system-ui,sans-serif;letter-spacing:.13em;text-transform:uppercase}
+  /* the three controls worth keeping while folded: the MUSIC's play/pause,
+     HOME (orbit far enough round a folded piece and there is otherwise no way
+     back to the framing it was composed in) and RESTART (hear it from the top
+     — the piece's "play again", which is a score, not a video timeline).
+     Deliberately NOT a volume button: the phone has hardware keys for that,
+     and play/pause covers silence. */
+  #miniplay,#minihome,#minirestart{display:none;width:48px;height:48px;padding:0;
+    border-radius:50%;align-items:center;justify-content:center}
+  #ui.folded~#foldwrap #miniplay,
+  #ui.folded~#foldwrap #minihome,
+  #ui.folded~#foldwrap #minirestart{display:flex}
+  /* PLAY IS FOR THE MUSIC. A bare triangle on a 3D piece promises a video
+     timeline that does not exist, so the note is part of the button and the
+     triangle/bars are only its state. */
+  #miniplay .mp-pause{display:none}
+  #miniplay.playing .mp-play{display:none}
+  #miniplay.playing .mp-pause{display:block}
+  #foldwrap button:disabled{opacity:.45;cursor:default}
   /* ONE breath after the reveal commits, then it is furniture. Fired from
      REVEAL.onCommit (announceControls) and the class is dropped on
      animationend, so it can never loop. */
@@ -348,7 +366,13 @@
     <button id="mousemode" title="zoom anchor: centre / cursor">🖱 centre</button>
     <button id="home" title="return camera home (H)">⌂ Home</button>
     <button id="orbit">Orbit</button>
-    <input id="spinspeed" type="range" min="-8" max="8" step="0.1" value="0.7" title="spin speed" style="width:110px;accent-color:#8bc34a">
+    <!-- BASE spin rate. The pace multiplier (0.65x-1.4x) rides on top of this
+         and self-centres near 1.0, so this value is the CENTRE the music
+         drifts either side of, not a ceiling. 0.7 read a touch too stately;
+         0.82 (+17%) is "slightly quicker" without hurrying a piece about time
+         passing, and leaves the musical swing just as audible (0.53-1.15).
+         step 0.02 so the centre can actually be dialled to values like this. -->
+    <input id="spinspeed" type="range" min="-8" max="8" step="0.02" value="0.82" title="spin speed" style="width:110px;accent-color:#8bc34a">
     <button id="looplock" title="lock the camera to whole turns per season cycle — seamless projection loop">∞ Loop</button>
     <select id="looprevs" title="camera turns per cycle" style="display:none">
       <option value="1" selected>1 turn</option>
@@ -401,7 +425,31 @@
 <!-- must stay the NEXT SIBLING of #ui: the miniplay reveal rides #ui.folded~ -->
 <div id="foldwrap">
   <button id="uifold" title="show / hide the controls">&equiv; controls</button>
-  <button id="miniplay" title="play / pause the music" disabled>&#9654;</button>
+  <!-- all three are inline SVG, not characters: ⌂ and ↻ are missing from
+       enough phone fonts to arrive as tofu boxes on the one device that needs
+       them most, and line art keeps the row in one visual language -->
+  <button id="miniplay" title="play / pause the music" aria-label="play music" disabled>
+    <svg viewBox="0 0 25 20" width="24" height="19" fill="none" stroke="currentColor"
+         stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+      <!-- the note says MUSIC; the mark to its right is only the state -->
+      <ellipse cx="5.6" cy="14.6" rx="3.2" ry="2.5" fill="currentColor" stroke="none"/>
+      <path d="M8.8 14.6V4.2c2.4.5 3.9 1.5 4.4 3.1"/>
+      <g class="mp-play"><path d="M17.4 5.9 23 10l-5.6 4.1z" fill="currentColor" stroke="none"/></g>
+      <g class="mp-pause"><path d="M17.8 5.9v8.2M22 5.9v8.2" stroke-width="2"/></g>
+    </svg>
+  </button>
+  <button id="minihome" title="home view (H)" aria-label="home view">
+    <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor"
+         stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+      <path d="M3.1 9.6 10 3.9l6.9 5.7"/><path d="M5.2 8.9v7.2h9.6V8.9"/>
+    </svg>
+  </button>
+  <button id="minirestart" title="play the piece again from the top" aria-label="restart">
+    <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor"
+         stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+      <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.5"/><path d="M16.6 3.1v3.6h-3.6"/>
+    </svg>
+  </button>
 </div>
 <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
 <script type="module">
@@ -1016,8 +1064,9 @@ if(REDUCE){ document.body.classList.remove('cover'); }
 // sticks (localStorage). The pill fades in with the cover-commit exactly as
 // the bar does — #foldwrap shares the body.cover opacity rule — so the
 // reveal flow is untouched: folded on mobile just means the HANDLE arrives.
-// announceControls() is the one-shot "I am here" breath, called from
-// REVEAL.onCommit once the .8s fade has landed. Set below, no-op until then.
+// announceControls() is the commit hook: on a phone's FIRST visit it runs the
+// PEEK (bar arrives open, then folds itself); on every other visit it is the
+// one-shot "I am here" breath on the pill. Set below, no-op until then.
 let announceControls=()=>{};
 {
   const uiEl=document.getElementById('ui'),
@@ -1025,23 +1074,45 @@ let announceControls=()=>{};
         foldBtn=document.getElementById('uifold'),
         mini=document.getElementById('miniplay'),
         aplayEl=document.getElementById('aplay');
-  const FOLD_KEY='potUIFold';
+  const FOLD_KEY='potUIFold', SEEN_KEY='potUISeen';
   const COARSE=matchMedia('(pointer:coarse)').matches;
-  let stored=null;
-  try{ stored=localStorage.getItem(FOLD_KEY); }catch(e){}
-  let folded=stored!==null ? stored==='1' : (COARSE||innerWidth<=700);
+  const PHONE=COARSE||innerWidth<=700;
+  let stored=null,seen=false;
+  try{ stored=localStorage.getItem(FOLD_KEY);
+       seen=localStorage.getItem(SEEN_KEY)==='1'; }catch(e){}
+  // ---- PEEK: a folded pill tells you nothing about what is behind it. On a
+  // phone's FIRST visit the bar therefore arrives OPEN with the commit fade,
+  // holds long enough to read, then folds itself away to the pill — the same
+  // .2s slide the handle uses, so the eye follows it down. Once only
+  // (SEEN_KEY), never over a stored choice (a returning visitor has already
+  // told us what they want), never on desktop (already open), never under
+  // reduced motion (no self-moving furniture — it just starts folded).
+  const PEEK_MS=3200;          // 0.8s of commit fade + ~2.4s open and readable
+  const peek=PHONE&&!REDUCE&&stored===null&&!seen;
+  let folded=stored!==null ? stored==='1' : (peek?false:PHONE);
+  let peekTimer=null, touched=false;
   function applyFold(){
     uiEl.classList.toggle('folded',folded);
-    foldBtn.innerHTML=folded?'&equiv; controls':'&#9662; hide';
+    foldBtn.innerHTML=folded?'&equiv; menu':'&#9662; hide';
     // unfolded, the pill perches just above the bar instead of on top of it
     foldWrap.style.bottom=folded?'10px':(uiEl.offsetHeight+8)+'px';
   }
-  function setFold(v){
+  // persist=false is the peek tidying up after itself: only a real tap is a
+  // preference, so the auto-fold must not masquerade as one.
+  function setFold(v,persist=true){
     folded=v;
-    try{ localStorage.setItem(FOLD_KEY,v?'1':'0'); }catch(e){}
+    if(persist){ try{ localStorage.setItem(FOLD_KEY,v?'1':'0'); }catch(e){} }
     applyFold();
   }
-  foldBtn.onclick=()=>setFold(!folded);
+  // ANY touch during the peek ends it and leaves the bar exactly as the
+  // visitor left it — being interrupted mid-demonstration and then folding
+  // anyway is the rudest thing this could do.
+  function cancelPeek(){
+    touched=true;
+    if(peekTimer){ clearTimeout(peekTimer); peekTimer=null; }
+  }
+  foldBtn.onclick=()=>{ cancelPeek(); setFold(!folded); };
+  uiEl.addEventListener('pointerdown',cancelPeek);
   // the bar re-wraps on resize; keep the perch honest
   new ResizeObserver(()=>{ if(!folded) foldWrap.style.bottom=(uiEl.offsetHeight+8)+'px'; })
     .observe(uiEl);
@@ -1052,6 +1123,7 @@ let announceControls=()=>{};
     let tx=0,ty=0,tt=0;
     renderer.domElement.addEventListener('pointerdown',e=>{
       tx=e.clientX; ty=e.clientY; tt=performance.now();
+      cancelPeek();                 // a drag is engagement: the demo is over
     });
     renderer.domElement.addEventListener('pointerup',e=>{
       if(folded||!REVEAL.committed) return;
@@ -1059,23 +1131,53 @@ let announceControls=()=>{};
         setFold(true);
     });
   }
-  // mini play/pause simply IS the bar's #aplay: click through, mirror state
+  // mini play/pause simply IS the bar's #aplay: click through, mirror state.
+  // Same for mini home and the bar's #home — one implementation of each, and
+  // #ui.folded is pointer-events:none, which does not block a scripted click.
+  // Restart is the piece's own (restartPiece, hoisted from the score block).
   mini.onclick=()=>aplayEl.click();
-  const mirror=()=>{ mini.textContent=aplayEl.textContent; mini.disabled=aplayEl.disabled; };
+  document.getElementById('minihome').onclick=()=>document.getElementById('home').click();
+  document.getElementById('minirestart').onclick=()=>restartPiece();
+  // NOT textContent any more — that would eat the note. The bar's ❚❚ is the
+  // only state there is, so read it and let CSS swap triangle for bars.
+  const mirror=()=>{
+    const playing=aplayEl.textContent.trim()!=='▶';
+    mini.classList.toggle('playing',playing);
+    mini.setAttribute('aria-label',playing?'pause music':'play music');
+    mini.disabled=aplayEl.disabled;
+  };
   new MutationObserver(mirror)
     .observe(aplayEl,{childList:true,attributes:true,attributeFilter:['disabled']});
   mirror();
-  // one breath, once, after the fade — then the class is gone for good and
-  // the pill is static furniture. Never on a second commit, never in reduce.
+  // ONE breath on the pill, once — then the class is gone for good and the
+  // pill is static furniture. Never twice, never in reduce, and never at all
+  // if the visitor has already put a finger on the piece: they have found it.
+  function glow(delay){
+    setTimeout(()=>{
+      if(touched||!folded) return;      // engaged, or the bar is open anyway
+      foldWrap.classList.add('call');
+      foldWrap.addEventListener('animationend',
+        ()=>foldWrap.classList.remove('call'),{once:true});
+    },delay);
+  }
+  // THE COMMIT HOOK. First visit on a phone: the bar is already open (peek),
+  // so hold it, fold it, and let the pill glow as it lands — the peek shows
+  // WHAT the controls are, the glow shows WHERE they went. Every other case:
+  // the pill is all there is, so it breathes on its own after the fade.
   let called=false;
   announceControls=()=>{
     if(called||REDUCE) return;
     called=true;
-    setTimeout(()=>{
-      foldWrap.classList.add('call');
-      foldWrap.addEventListener('animationend',
-        ()=>foldWrap.classList.remove('call'),{once:true});
-    },1400);
+    try{ localStorage.setItem(SEEN_KEY,'1'); }catch(e){}
+    if(peek){
+      peekTimer=setTimeout(()=>{
+        peekTimer=null;
+        setFold(true,false);            // the demo folding itself, not a choice
+        glow(500);                      // after the .2s slide has landed
+      },PEEK_MS);
+    }else{
+      glow(1400);
+    }
   };
 }
 
@@ -1905,6 +2007,7 @@ let analyser=null,adata=null,audioOn=false;
 let beatEnv=0, lastBass=0, tempo=0;      // tempo = smoothed musical energy
 let actx=null, audioEl=null, masterGain=null;
 let overture=null, scoreBuf=null;   // WebAudio overture for the bundled score
+let lastPos=0;                      // last known playhead, kept across a reload
 
 function ensureCtx(){
   if(!actx){ actx=new AudioContext(); masterGain=actx.createGain();
@@ -1920,6 +2023,19 @@ function attach(node){
 }
 
 // --- music file playback ---
+// A SEEK BEFORE THE ELEMENT HAS METADATA IS SILENTLY DISCARDED, and load()
+// throws the playhead back to 0 — put the two together and "play" drops the
+// listener into the recording's first 4.95 SECONDS OF DIGITAL SILENCE
+// (measured: the file is pure zero until 4.95s, which is why SCORE_IN exists
+// at all). Every path that positions the score now goes through here: seek
+// now, and seek AGAIN the moment the element knows what it is holding.
+function cueTo(pos){
+  if(!audioEl) return;
+  const el=audioEl;                     // capture: a later useAudio() swaps it
+  const apply=()=>{ try{ if(Math.abs(el.currentTime-pos)>0.05) el.currentTime=pos; }catch(e){} };
+  apply();
+  if(el.readyState<1) el.addEventListener('loadedmetadata',apply,{once:true});
+}
 const fileEl=document.getElementById('file'), aplay=document.getElementById('aplay');
 const apos=document.getElementById('apos'), atime=document.getElementById('atime');
 const trackLbl=document.getElementById('track');
@@ -1971,9 +2087,27 @@ fileEl.onchange=()=>{
   document.getElementById('sound').classList.remove('show');  // their track is the music now
   useAudio(URL.createObjectURL(f),f.name,true);
 };
+// PLAY/PAUSE — and the mini play in the folded row is this same handler.
+// RESUME MEANS RESUME: the playhead only ever moves here for a COLD start
+// (nothing has played yet) or for an element the browser has thrown away and
+// had to reload, and in both cases it moves to the cue, never to 0. Anything
+// else — a resume after a pause, a deliberate scrub to 0:02 — is left alone.
 aplay.onclick=()=>{
   if(!audioEl) return;
-  if(audioEl.paused){ ensureCtx(); audioEl.play(); aplay.textContent='❚❚'; setPlay(true); }
+  if(audioEl.paused){
+    ensureCtx();
+    if(audioEl.error||audioEl.readyState===0){
+      const at=audioEl.currentTime>0.05?audioEl.currentTime
+              :(lastPos>0.05?lastPos:(userTrack?0:SCORE_IN));
+      audioEl.load(); cueTo(at);        // load() resets to 0: put it back
+    }else if(audioEl.currentTime<0.05){
+      // sitting at zero with a healthy element: either a genuine cold start
+      // or a reload that ate the position. Prefer where it was, else the cue
+      // — the one thing this must never do is play the file's silent head.
+      cueTo(lastPos>0.05?lastPos:(userTrack?0:SCORE_IN));
+    }
+    audioEl.play(); aplay.textContent='❚❚'; setPlay(true);
+  }
   else { audioEl.pause(); aplay.textContent='▶'; }
 };
 // volume + mute. Mute remembers the pre-mute level and restores it; the
@@ -2607,6 +2741,9 @@ function stepScene(dt){
   if(audioEl && !seeking){
     apos.value=audioEl.currentTime;
     atime.textContent=fmt(audioEl.currentTime)+' / '+fmt(audioEl.duration);
+    // remembered so a browser-evicted element can be resumed where it was
+    // rather than from the cue (and never, ever, from the silent head)
+    if(audioEl.currentTime>0.05) lastPos=audioEl.currentTime;
   }
   // gl_PointSize is in FRAMEBUFFER pixels. Point apparent size = size/bufferH
   // must stay constant so brightness/saturation match on screen and in exports.
@@ -2844,14 +2981,34 @@ function primeScore(){
       // reduced motion commits in the SAME click: the prime must not pause
       // the very playback the commit just asked for — unmute and let it run
       if(REVEAL.committed){
-        try{ if(audioEl.currentTime<SCORE_IN-0.05) audioEl.currentTime=SCORE_IN; }catch(e){}
+        if(audioEl.currentTime<SCORE_IN-0.05) cueTo(SCORE_IN);
         aplay.textContent='❚❚';
         return;
       }
       audioEl.pause();
-      try{ if(audioEl.currentTime<SCORE_IN-0.05) audioEl.currentTime=SCORE_IN; }catch(e){}
+      if(audioEl.currentTime<SCORE_IN-0.05) cueTo(SCORE_IN);
     }).catch(()=>{ audioEl.muted=false; });
   }catch(e){}
+}
+// RESTART — the piece's "play it again", and the reason it is a circular
+// arrow and not a rewind bar: there is no timeline to scrub, there is a score
+// and a year. Both go back to where the reveal hands them over — the score to
+// its cue (a loaded track to its own start, since 4.6s is OUR recording's
+// dead air) and the year clock to the summer the commit lands on. The CAMERA
+// is deliberately untouched: that is Home's job, and someone who has framed a
+// branch they like should not lose it just because they want the music again.
+const LAND_T=2;                       // summer, where stepReveal leaves the year
+function restartPiece(){
+  ensureCtx();
+  t=LAND_T; elapsed=elapsedAt(t); slider.value=t; lbl.textContent=nameFor(t);
+  setPlay(true);
+  if(overture){ try{ overture.src.stop(); }catch(e){} overture=null; }
+  if(!audioEl){ startScore(); return; }
+  if(audioEl.error||audioEl.readyState===0) audioEl.load();
+  // the cue, NOT zero: "again" means the piano again, not the silent head
+  cueTo(userTrack?0:SCORE_IN);
+  audioEl.play().then(()=>{ aplay.textContent='❚❚';
+    document.getElementById('sound').classList.remove('show'); }).catch(()=>{});
 }
 function startScore(){
   // their music, not ours: never seek it to SCORE_IN, never arm the retry
@@ -2882,7 +3039,7 @@ function startScore(){
     if(!playing||overture) armScoreRetry();
   };
   if(audioEl){   // primed at BEGIN: same element, activation already carried
-    try{ if(audioEl.currentTime<SCORE_IN-0.05) audioEl.currentTime=SCORE_IN; }catch(e){}
+    if(audioEl.currentTime<SCORE_IN-0.05) cueTo(SCORE_IN);
     return audioEl.play().then(()=>{ aplay.textContent='❚❚'; })
                          .catch(()=>{}).then(finish);
   }
@@ -2897,7 +3054,14 @@ function armScoreRetry(){
   if(scoreArmed) return; scoreArmed=true;
   const off=()=>{ for(const ev of ['pointerdown','keydown','touchstart'])
     removeEventListener(ev,go); };
-  const go=()=>{
+  const go=(e)=>{
+    // HANDS OFF THE TRANSPORT. This listener is on the whole window, so a tap
+    // on play/pause reached it BEFORE the button's own click handler: it
+    // started the element, the button then saw a playing element and paused
+    // it — a play button that pauses, and (via the load() below) one that
+    // could land back in the silent head. Those buttons handle themselves.
+    if(e&&e.target&&e.target.closest&&
+       e.target.closest('#aplay,#miniplay,#minirestart,#sound,#apos')) return;
     // a track of their own arrived while we were armed: stand down entirely,
     // or the next tap would yank their music to the score's cue
     if(userTrack||!audioEl||!audioEl.paused){ off(); return; }
@@ -2905,7 +3069,7 @@ function armScoreRetry(){
     if(audioEl.error||audioEl.readyState===0) audioEl.load();
     // pick up exactly where the overture has got to, else at the entry point
     const pos=overture?SCORE_IN+(actx.currentTime-overture.t0):SCORE_IN;
-    try{ if(Math.abs(audioEl.currentTime-pos)>0.05) audioEl.currentTime=pos; }catch(e){}
+    cueTo(pos);                          // survives the load() above
     audioEl.play().then(()=>{
       if(overture){ try{ overture.src.stop(); }catch(e){} overture=null; }
       aplay.textContent='❚❚'; soundBtn.classList.remove('show'); off();
@@ -2918,7 +3082,7 @@ soundBtn.onclick=()=>{
   // a refused autoplay often leaves the media load aborted; nudge it first
   if(!audioEl) return;
   if(audioEl.error||audioEl.readyState===0) audioEl.load();
-  if(!userTrack&&audioEl.currentTime<SCORE_IN-0.05){ try{ audioEl.currentTime=SCORE_IN; }catch(e){} }
+  if(!userTrack&&audioEl.currentTime<SCORE_IN-0.05) cueTo(SCORE_IN);
   audioEl.play().then(()=>{
     aplay.textContent='❚❚'; soundBtn.classList.remove('show');
   }).catch(()=>{});
@@ -2953,6 +3117,8 @@ window.__pot={REVEAL,camera,controls,renderer,geos:[gW,gL],
   get pace(){return {on:paceSpin,tempo:+tempo.toFixed(3),smooth:+paceSmooth.toFixed(3),
     spin:+controls.autoRotateSpeed.toFixed(3)};},
   get audio(){return audioEl;},
+  get analyser(){return analyser;},      // checks listen through this
+  get cue(){return SCORE_IN;},
   get windSfx(){return windSfx;},
   get score(){return {elPlaying:!!(audioEl&&!audioEl.paused),overture:!!overture,
     ctx:actx?actx.state:null};},
