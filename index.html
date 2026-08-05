@@ -630,7 +630,8 @@ const loadline=document.getElementById('loadline');
 const barfill=document.getElementById('barfill'), gstat=document.getElementById('gstat');
 const REDUCE=matchMedia('(prefers-reduced-motion:reduce)').matches;
 const REVEAL={raw:0,p:0,armed:false,committed:false,ready:false,onCommit:null,scene:false,
-              densify:1,fly:0,letters:false,letterA:0};
+              densify:1,densFrom:1,densT:0,spinning:false,spinT:0,
+              fly:0,letters:false,letterA:0};
 // wordmark plane, rebuilt each frame from the camera so the type is screen-locked
 const LO=new THREE.Vector3(), LR=new THREE.Vector3(), LU=new THREE.Vector3();
 const LETTER_D=5.6;        // world units in front of the camera
@@ -757,55 +758,117 @@ addEventListener('resize',()=>{
 //              both at once read as a double exposure wherever registration
 //              was a few px off, so the handoff is sequenced, never layered.
 //  0.055-0.105 the splat copy fades in where the DOM card just was
-//  0.12-0.82   flight: a GUST crosses the word left to right and letters peel
-//              as the front passes; freed particles are carried into a loose
-//              anticlockwise half-orbit, gather turbulently, land trunk-first
-//              (all of it per-particle inside coverMorph)
+//  0.12-0.44   THE GUST crosses the word left to right and letters peel as the
+//              front passes. The hook, and it keeps its own wall clock: the
+//              fold below starts after it, never inside it.
+//  0.44-0.62   drift, gather, land — freed particles are carried into a loose
+//              anticlockwise half-orbit and gather turbulently onto the tree,
+//              trunk-first (all of it per-particle inside coverMorph). This
+//              stretch is where the piece used to idle, so the runway is
+//              FOLDED through it: same choreography, played at up to ~2.7x,
+//              eased in and out so nothing lurches. It ends with the sparse
+//              tree whole, the sky lit and the vignette gone.
 //  0.58-0.76   the sparse tree fills to the lowest density-slider look
-//  0.80-0.93   densify: the hero tree ramps to full density, and the reveal
-//              ENDS there rather than easing out over the last 7% of runway.
-//              This ramp used to run to 0.995 and took twice as long — "the
-//              tree getting denser is slightly too long". The world beyond the
-//              tree is not waiting on any of it: it arrives after commit, on
-//              the uWorldR sweep, capped by what has actually downloaded.
-const REVEAL_END=0.93;                // densify done == reveal done == commit
+//  ~0.45 fly   THE TURN STARTS — mid-gather, well before the tree is whole.
+//              "It can start spinning straight away before it's full and
+//              become a tree with the spin, so it's quicker."
+//  0.72-0.86   the hero STARTS thickening — enough to read as a tree, nowhere
+//              near finished, which is the whole point of the next line.
+//  0.62        COMMIT. It used to wait for a fully dense tree at 0.93, which
+//              on the streaming clock was seven seconds of watching material
+//              accumulate before anything happened — "we need that quicker, at
+//              least this tree build and start spin". So commit is now tied to
+//              LEGIBILITY, not completion: the moment the flight lands, the
+//              score and the year come in on an ALREADY TURNING scene, and
+//              everything still to arrive arrives on top of it — the hero's
+//              density tail and the world's radial front, overlapped into one
+//              expanding fill.
+//
+// THE FOLD. p is pushed forward through a smoothstep, so the warped clock is
+// C1 at both ends of the fold: the flight accelerates INTO it and eases out.
+// Every flight-coupled band below reads this one warped value, so the sky, the
+// vignette, the splat morph, the wind and the camera stay locked to each other
+// exactly as they were — only the clock underneath them changed.
+const FOLD_A=0.44, FOLD_B=0.62, FOLD_G=0.20;
+const flightClock=p=>p+FOLD_G*band(p,FOLD_A,FOLD_B);
+const REVEAL_END=0.62;                // flight landed == tree legible == commit
+// ---- THE SPIN COMES IN DURING THE FLIGHT ----------------------------------
+// The rotation used to be part of the commit: static tree, then a switch is
+// thrown. Now it starts while the swarm is still arriving, and it EASES up
+// from a standstill with a little extra turn while the last of the tree is
+// landing, settling back to the composed idle speed as the density tail and
+// the world front finish. One curve, so it reads as the scene coming alive
+// rather than a control being toggled — and the assembly happens on a moving
+// scene, which is what makes the whole thing feel quicker.
+// trigger at 0.40 — the exact point the gust front has freed the LAST letter
+// (t0 tops out at 0.40 in coverMorph). The word is fully airborne, the trunk
+// points are already closing on home, and that is the seam to start turning on.
+const SPIN_FLY=0.40;
+const SPIN_IN=0.9, SPIN_SETTLE=3.2, SPIN_LIFT=1.1;   // seconds, seconds, x idle
+function startEarlySpin(){
+  if(REVEAL.spinning||REDUCE) return;
+  REVEAL.spinning=true; REVEAL.spinT=0;
+  controls.autoRotate=true;
+  document.getElementById('orbit').classList.add('on');
+}
+// applied to the spin speed every frame; a plain 1 once it has settled, and a
+// plain 1 for anyone who turned Orbit on by hand instead
+function spinGain(dt){
+  if(!REVEAL.spinning||REVEAL.spinT>=SPIN_IN+SPIN_SETTLE) return 1;
+  REVEAL.spinT+=dt;
+  const up=ease(REVEAL.spinT/SPIN_IN);
+  const lift=SPIN_LIFT*(1-ease((REVEAL.spinT-SPIN_IN)/SPIN_SETTLE));
+  return up*(1+Math.max(0,lift));
+}
 function stepReveal(dt){
   if(REVEAL.committed||REDUCE) return;   // reduced motion never animates any of it
   REVEAL.p+=(REVEAL.raw-REVEAL.p)*(1-Math.exp(-dt/0.055));
   const p=REVEAL.p;
-  const fly=band(p,0.12,0.82);          // 0 = type, 1 = home
-  REVEAL.densify=0.15*band(p,0.58,0.76)+0.85*band(p,0.80,REVEAL_END);
+  const w=flightClock(p);               // folded clock: everything past the gust
+  const fly=band(w,0.12,0.82);          // 0 = type, 1 = home
+  // pre-commit density only has to make the silhouette read (~0.41 of full);
+  // the rest is the tail, after commit, in the render loop
+  REVEAL.densify=0.15*band(w,0.58,0.76)+0.30*band(w,0.72,0.86);
   REVEAL.fly=fly;
   coverUI.style.opacity=1-band(p,0.0,0.16);
-  coverEdge.style.opacity=(1-band(p,0.26,0.96))*(REVEAL.letters?0.85:1);
+  // the vignette must be COMPLETELY gone before commit, not 9% still up:
+  // commit no longer sits at the far end of the runway to hide the remainder
+  coverEdge.style.opacity=(1-band(w,0.26,0.78))*(REVEAL.letters?0.85:1);
   if(REVEAL.letters){
-    // THE DARK CARD GOES FIRST, AND EARLY. The splat copy is drawn on the
-    // canvas UNDERNEATH it, so while the card is up there is nothing to hand
-    // over to: measured, the old schedule left the title invisible from p=0.04
-    // to p=0.11 and only back to full strength at p=0.30 — which is the "it
-    // fades passage of time and renews it". The card can leave this early
-    // because it dissolves into the dark SKY, which is the same near-black:
-    // backdrop luminance measured 9.5 behind the card and 9.8 without it.
-    coverBase.style.opacity=1-band(p,0.010,0.042);
-    // Then the two copies CROSS-fade, ~130ms, no gap. They were sequenced
-    // because registration could not be trusted; it now measures within 1px on
-    // every edge at dpr 1, 1.25 and 2, so overlapping them reads as one word
-    // resolving into grain rather than as two words swapping over.
-    coverIn.style.opacity=1-band(p,0.048,0.058);
-    REVEAL.letterA=band(p,0.048,0.058);
+    // SEQUENCED HANDOFF, scrubbed both ways: the DOM card is gone BEFORE the
+    // splat copy is distinguishable — imperfect registration can never
+    // double-expose. Scroll back and the DOM card returns the same way.
+    // REVERTED from a ~130ms crossfade at 0.048-0.058: overlapping the two
+    // copies read as "the title Passage of Time is changing twice". One fade
+    // in, one word. The registration is good enough for a crossfade and that
+    // was never the point — the eye does not want to watch the swap.
+    coverIn.style.opacity=1-band(p,0.015,0.050);
+    coverBase.style.opacity=1-band(p,0.025,0.30);
+    REVEAL.letterA=band(p,0.055,0.105);
   }else{                                // still downloading: DOM card carries it
     coverIn.style.opacity=1-band(p,0.02,0.46);
     coverBase.style.opacity=1-band(p,0.06,0.62);
   }
-  windUpdate(dt,p);                     // the flight's air, gusting with the scrub
+  windUpdate(dt,p,w);                   // the flight's air, gusting with the scrub
   // the gust has taken the word: say what your hands can do while it travels
   if(!gShown&&p>0.09) gestureShow();
   // everything below needs the scene, which does not exist until the splats
   // land — before that this tick is only keeping the cover honest.
   if(!REVEAL.scene) return;
-  skyMat.uniforms.uDark.value=REVEAL.letters?1-band(p,0.18,0.86):0;
+  // THE TURN STARTS INSIDE THE FLIGHT. Trunk points begin moving off the
+  // letter plane toward home around fly 0.32, so from here the tree is
+  // genuinely assembling — and it assembles on a scene that is already
+  // moving: "it can start spinning straight away before it's full and become
+  // a tree with the spin". Nothing can smear: points still in flight are
+  // pinned to the CAMERA-LOCKED letter plane, so a turning camera does not
+  // move them on screen at all, and coverMorph mixes TOWARD each point's true
+  // world position — the landing is exact whatever the camera did on the way.
+  if(fly>=SPIN_FLY) startEarlySpin();
+  // lit by 0.78 of the folded clock, i.e. before commit — commitReveal's
+  // uDark=0 has to be a no-op or the sky snaps as the spin starts
+  skyMat.uniforms.uDark.value=REVEAL.letters?1-band(w,0.18,0.78):0;
   // ground disc + birds + weather: they arrive with the tree, not before it
-  const extras=!REVEAL.letters||p>0.46;
+  const extras=!REVEAL.letters||w>0.46;
   for(const o of COVER_HIDE) o.visible=extras;
   // the splats' own share of the reveal. Scatter is specified in SCREEN pixels
   // and converted — in world units it wrecked thin type at one viewport size
@@ -814,10 +877,10 @@ function stepReveal(dt){
   const ls=REVEAL.lscale||1;
   // peel scatter amplitude — WHEN each particle takes it is per-particle in
   // the shader now (only once the gust front has freed it)
-  const loose=band(p,0.10,0.22)*(1-band(p,0.60,0.85))*2.5*ls*(REVEAL.wpp||0.007);
+  const loose=band(p,0.10,0.22)*(1-band(w,0.58,0.80))*2.5*ls*(REVEAL.wpp||0.007);
   // the held type thins as the gust takes it — gentler than before, so the
   // right-hand letters the front hasn't reached yet don't pre-fade
-  const typeA=REVEAL.letterA*(1-band(p,0.26,0.50)*0.66);
+  const typeA=REVEAL.letterA*(1-band(w,0.26,0.50)*0.66);
   for(const m of mats){
     const u=m.uniforms;
     u.uFly.value=REVEAL.letters?fly:1;
@@ -825,25 +888,27 @@ function stepReveal(dt){
     // back in during the flight so the sparse tree that lands is the same
     // everywhere — otherwise a phone assembled a ghost of one
     u.uPart.value=REVEAL.letters
-      ?PART*(Math.max(0.10,ls*ls)+(1-Math.max(0.10,ls*ls))*band(p,0.30,0.58)):-1;
+      ?PART*(Math.max(0.10,ls*ls)+(1-Math.max(0.10,ls*ls))*band(w,0.30,0.58)):-1;
     u.uLoose.value=loose;
     u.uLetterA.value=typeA;
     u.uLO.value.copy(LO); u.uLR.value.copy(LR); u.uLU.value.copy(LU);
     u.uLetterPx.value=LETTER_PX*Math.max(0.62,ls)*Math.min(devicePixelRatio,2);
   }
   // the camera settles in with it — the reveal is a move the piece makes,
-  // not a page transition laid over the top of it
+  // not a page transition laid over the top of it. It is timed to REVEAL_END,
+  // not to the runway: the dolly must be exactly HOME on the commit frame,
+  // and commit is now the landing rather than the bottom of the scroll.
   if(HOME_DIST){
+    const cam=ease(Math.min(1,p/REVEAL_END));
     const off=camera.position.clone().sub(controls.target);
-    off.setLength(HOME_DIST*(1+0.34*(1-ease(p))));
+    off.setLength(HOME_DIST*(1+0.34*(1-cam)));
     camera.position.copy(controls.target).add(off);
   }
-  // The moment the densify ramp tops out there is nothing left to reveal, so
-  // do not spend the tail of the runway easing towards a picture that is
-  // already on screen — commit. (It used to wait for p>0.99, which on the
-  // streaming clock was another two seconds of watching a finished tree.)
-  // The cover's own fades are complete by here too: the edge vignette is at
-  // 0.5% opacity and the sky has been fully lit since 0.86.
+  // COMMIT ON LEGIBILITY, NOT COMPLETION. The flight has landed, the sky is
+  // lit, the vignette is gone and the silhouette reads — that is a tree, so
+  // start the piece. What is still thin fills in underneath the turn (see the
+  // post-commit tail in the render loop). Waiting for full density here was
+  // the "tree takes forever to become the tree".
   if(p>REVEAL_END&&REVEAL.raw>REVEAL_END) commitReveal();
 }
 // WATCHDOG: bottom of the runway MUST equal commit. If raw sits pinned at
@@ -878,7 +943,7 @@ function updateLetterPlane(){
   const halfW=boxW*0.5*wpp;
   // the title SINKS slightly as the material rises out of it — a modest
   // downward drift of the remaining letterforms across the flight
-  const sink=band(REVEAL.p,0.15,0.75)*30;   // CSS px, subtle by design
+  const sink=band(flightClock(REVEAL.p),0.15,0.75)*30;   // CSS px, subtle by design
   LO.copy(camera.position).addScaledVector(_d,LETTER_D)
     .addScaledVector(_r,(LBOX.cxFrac-0.5)*innerWidth*wpp)
     .addScaledVector(_u,-((LBOX.cyFrac-0.5)*innerHeight+sink)*wpp);
@@ -889,10 +954,23 @@ function updateLetterPlane(){
 function commitReveal(){
   if(REVEAL.committed) return;
   REVEAL.committed=true;
-  REVEAL.p=REVEAL.raw=1; REVEAL.fly=1; REVEAL.densify=1;
+  REVEAL.p=REVEAL.raw=1; REVEAL.fly=1;
+  // DENSITY IS NOT PART OF THE COMMIT. The tree is legible, so the piece
+  // starts; the rest of the hero keeps arriving underneath the turn, on the
+  // same clock as the world's radial front, so the two post-commit fills read
+  // as one expanding arrival instead of two events. Reduced motion has no
+  // flight and nothing to fill: it lands whole.
+  REVEAL.densFrom=REDUCE?1:REVEAL.densify;
+  REVEAL.densT=0;
+  if(REDUCE) REVEAL.densify=1;
   if(REVEAL.scene){
-    for(const m of mats){ m.uniforms.uFly.value=1; m.uniforms.uPart.value=-1;
-                          m.uniforms.uLoose.value=0; }
+    for(const m of mats){ m.uniforms.uFly.value=1; m.uniforms.uLoose.value=0; }
+    // uPart is deliberately LEFT where the flight put it. The wordmark slice
+    // is exempt from the density cull (see 'keep' in the shaders), so dropping
+    // it to -1 while densify is still short of 1 would delete a few percent of
+    // the tree on the commit frame — a visible thinning at the exact moment
+    // nothing may pop. The tail releases it, where it is a no-op.
+    if(REDUCE) for(const m of mats) m.uniforms.uPart.value=-1;
     skyMat.uniforms.uDark.value=0;
     for(const o of COVER_HIDE) o.visible=true;
   }
@@ -954,10 +1032,14 @@ function windStart(){
 }
 for(const ev of ['pointerdown','keydown','touchstart'])
   addEventListener(ev,windStart,{passive:true});
-function windUpdate(dt,p){
-  // gust follows how fast the hand is actually scrubbing
-  let v=Math.abs(REVEAL.raw-windSfxRaw)/Math.max(dt,1e-3);
-  windSfxRaw=REVEAL.raw;
+function windUpdate(dt,p,w){
+  // gust follows how fast the SWARM is actually moving — the folded clock, not
+  // the scroll. Through the fold the flight runs at up to ~2.4x, and the air
+  // has to go with it or the acceleration reads as a dropped frame instead of
+  // the second gust that plants the tree.
+  const wr=flightClock(REVEAL.raw);
+  let v=Math.abs(wr-windSfxRaw)/Math.max(dt,1e-3);
+  windSfxRaw=wr;
   // AUTO-PLAY: the tween scrubs far slower than a hand ever would, so its
   // velocity is lifted to hand speed and given a slow surge — the flight
   // keeps its air, breathing through the whole reveal instead of whispering.
@@ -966,10 +1048,13 @@ function windUpdate(dt,p){
   if(autoScroll) v*=2.6*(autoDurMs/7500)*(0.8+0.2*Math.sin(performance.now()*0.0012));
   windSfxVel+=(v-windSfxVel)*(1-Math.exp(-dt*3));
   if(!windSfx) return;
-  const amt=band(p,0.08,0.30)*(1-band(p,0.86,1.0));
+  // the tails run on the FOLDED clock: the air has to be all but out of the
+  // room by commit, which is no longer at the end of the runway. It used to be
+  // handed to setTargetAtTime at half level, under the first piano note.
+  const amt=band(p,0.08,0.30)*(1-band(w,0.70,0.86));
   // the gust ITSELF: the audio swells with the front crossing the word,
   // then eases back to the travelling breath for the drift and gather
-  const sweep=band(p,0.10,0.30)*(1-band(p,0.46,0.68));
+  const sweep=band(p,0.10,0.30)*(1-band(w,0.46,0.68));
   const level=(amt*(0.35+Math.min(0.65,windSfxVel*1.6))+sweep*0.55)*0.14;
   windSfx.gain.gain.setTargetAtTime(level,windSfx.ctx.currentTime,0.25);
 }
@@ -2859,10 +2944,12 @@ function stepScene(dt){
   // points up on hi-dpi). PR0 is fixed, so live == record at every dpi.
   const PR0=Math.min(devicePixelRatio,2);
   const px=(renderer.domElement.height/PR0)*1.1*(camera.projectionMatrix.elements[5]??2);
-  // during the reveal the cloud is held back and let in as the last stage —
+  // during the reveal the cloud is held back and let in behind the flight —
   // the wordmark particles are exempt (see the keep test in the shaders), so
-  // what you see below 0.72 is only them
-  const dens=parseFloat(densityEl.value)*(REVEAL.committed?1:REVEAL.densify);
+  // what you see early is only them. REVEAL.densify is NOT forced to 1 at
+  // commit any more: it carries on rising through the tail below, which is
+  // why this reads it unconditionally.
+  const dens=parseFloat(densityEl.value)*REVEAL.densify;
   // wind: a gentle base breeze, gusting with the music. Leaves in summer feel
   // it most; bare winter branches barely move.
   const leafy=Math.max(0,Math.min(1,(t-0.9)/0.8))*(1-Math.max(0,Math.min(1,(t-3.7)/0.5)));
@@ -2882,6 +2969,26 @@ function stepScene(dt){
   // ordered stream has actually downloaded, so the entrance never outruns
   // the network. Reduced motion goes straight to everything it has.
   if(REVEAL.committed) worldT+=dt;
+  // ---- THE TAIL: one arrival, two fronts --------------------------------
+  // The hero thickens from whatever density it committed at up to full, and
+  // the world sweeps outward from the tree. They are deliberately OVERLAPPED
+  // (hero 0.15-2.45s, world 0.5-3.7s) and share this one uDensity, so the
+  // radial front travels out THROUGH a cloud that is still thickening — one
+  // continuous fill spreading out of a turning tree, not "the tree finishes,
+  // then the park appears".
+  if(REVEAL.committed&&!REDUCE&&REVEAL.densify<1){
+    REVEAL.densT+=dt;
+    const dk=Math.min(1,Math.max(0,(REVEAL.densT-0.15)/2.30));
+    REVEAL.densify=REVEAL.densFrom+(1-REVEAL.densFrom)*(dk*dk*(3-2*dk));
+    if(REVEAL.densify>0.9995){
+      REVEAL.densify=1;
+      // the cull now keeps everything, so the wordmark slice can stop being
+      // a special case — this is the no-op the commit frame could not be.
+      // uLetterA goes with it: inert since mS hit 1, but zeroing it leaves the
+      // uniform set of a tree that flew identical to one that never did.
+      for(const m of mats){ m.uniforms.uPart.value=-1; m.uniforms.uLetterA.value=0; }
+    }
+  }
   const wk=REDUCE?1:Math.min(1,Math.max(0,(worldT-0.5)/3.2));
   const sweepR=REVEAL.committed?HERO_R+(wk*wk*(3-2*wk))*(18.0-HERO_R):HERO_R;
   for(let mi=0;mi<MATL.length;mi++){
@@ -3011,8 +3118,18 @@ function stepScene(dt){
       // who has deliberately dragged the slider past that keeps their choice.
       const cap=Math.max(2.4,Math.abs(parseFloat(spinEl.value)));
       if(Math.abs(sp)>cap) sp=cap*Math.sign(sp);
+    } else {
+      // NOT PLAYING: the multiplier RELAXES back to 1 instead of freezing
+      // wherever the last playing frame left it. BEGIN's muted prime counts as
+      // a playing element for a moment, and over silence the pace reading sinks
+      // to its floor — so the value sat parked at ~0.72 and re-engaged on the
+      // exact frame the score came in, stepping the turn down by a third just
+      // as the piece arrived. Invisible while the spin also started at commit;
+      // very visible now that the tree is already turning when it gets there.
+      paceSmooth+=(1-paceSmooth)*(1-Math.exp(-dt*1.6));
     }
-    controls.autoRotateSpeed=sp;
+    // the reveal's own spin-in rides on top and is a no-op once settled
+    controls.autoRotateSpeed=sp*spinGain(dt);
   }
   controls.update();
   renderer.render(scene,camera);
@@ -3219,11 +3336,10 @@ soundBtn.onclick=()=>{
 // the end of the runway read as "nothing is happening".
 REVEAL.onCommit=()=>{
   setPlay(true);
-  if(!REDUCE){
-    controls.autoRotate=true;
-    controls.autoRotateSpeed=parseFloat(spinEl.value);
-    document.getElementById('orbit').classList.add('on');
-  }
+  // usually a no-op: the flight already started the turn (SPIN_FLY) and the
+  // ramp is mid-way through. This is the backstop for the paths that never ran
+  // stepReveal — reduced motion aside, a commit straight off the watchdog.
+  startEarlySpin();
   startScore();
   // and the handle says hello, once, so the piece reads as playable
   announceControls();
@@ -3241,6 +3357,18 @@ window.__pot={REVEAL,camera,controls,renderer,geos:[gW,gL],
     v:+skyMat.uniforms.uStorm.value.toFixed(3),
     heat:+skyMat.uniforms.uHeat.value.toFixed(3)};},
   get auto(){return !!autoScroll;},
+  // camera bearing in degrees — the checks measure the spin-in through this
+  get camAz(){return Math.atan2(camera.position.x-controls.target.x,
+                                camera.position.z-controls.target.z)*180/Math.PI;},
+  get spin(){return {on:controls.autoRotate,started:REVEAL.spinning,
+    t:+REVEAL.spinT.toFixed(2),speed:+controls.autoRotateSpeed.toFixed(3)};},
+  // every uniform the cover morph can touch. Once uFly >= 1 coverMorph returns
+  // 1 before it reads any of them and mS==1 mixes the rest out, so a landed
+  // point is bit-for-bit a point that never flew — this is how the checks
+  // prove the arrival is exact after a flight over a moving camera.
+  get uni(){return mats.map(m=>({fly:m.uniforms.uFly.value,part:m.uniforms.uPart.value,
+    loose:m.uniforms.uLoose.value,letterA:m.uniforms.uLetterA.value,
+    density:+m.uniforms.uDensity.value.toFixed(4)}));},
   get pace(){return {on:paceSpin,tempo:+tempo.toFixed(3),smooth:+paceSmooth.toFixed(3),
     spin:+controls.autoRotateSpeed.toFixed(3),bpm:+trackBPM.toFixed(1),
     pulse:+trackPulse.toFixed(2),drive:+trackDrive.toFixed(2),
