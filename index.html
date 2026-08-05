@@ -366,9 +366,10 @@
     <button id="mousemode" title="zoom anchor: centre / cursor">🖱 centre</button>
     <button id="home" title="return camera home (H)">⌂ Home</button>
     <button id="orbit">Orbit</button>
-    <!-- BASE spin rate. The pace multiplier (0.65x-1.4x) rides on top of this
-         and self-centres near 1.0, so this value is the CENTRE the music
-         drifts either side of, not a ceiling. 0.7 read a touch too stately;
+    <!-- BASE spin rate. The pace multiplier (0.55x-1.75x, from the track's
+         measured tempo) rides on top of this, and sits at 1.0 for music around
+         112bpm — so this value is the rate a middling tempo turns at, the
+         neutral the music gears up and down from. 0.7 read a touch too stately;
          0.82 (+17%) is "slightly quicker" without hurrying a piece about time
          passing, and leaves the musical swing just as audible (0.53-1.15).
          step 0.02 so the centre can actually be dialled to values like this. -->
@@ -761,24 +762,37 @@ addEventListener('resize',()=>{
 //              anticlockwise half-orbit, gather turbulently, land trunk-first
 //              (all of it per-particle inside coverMorph)
 //  0.58-0.76   the sparse tree fills to the lowest density-slider look
-//  0.80-1.00   densify: the hero tree ramps to full density. The WORLD beyond
-//              it stays hidden — it arrives only after commit (uWorldR sweep).
+//  0.80-0.93   densify: the hero tree ramps to full density, and the reveal
+//              ENDS there rather than easing out over the last 7% of runway.
+//              This ramp used to run to 0.995 and took twice as long — "the
+//              tree getting denser is slightly too long". The world beyond the
+//              tree is not waiting on any of it: it arrives after commit, on
+//              the uWorldR sweep, capped by what has actually downloaded.
+const REVEAL_END=0.93;                // densify done == reveal done == commit
 function stepReveal(dt){
   if(REVEAL.committed||REDUCE) return;   // reduced motion never animates any of it
   REVEAL.p+=(REVEAL.raw-REVEAL.p)*(1-Math.exp(-dt/0.055));
   const p=REVEAL.p;
   const fly=band(p,0.12,0.82);          // 0 = type, 1 = home
-  REVEAL.densify=0.15*band(p,0.58,0.76)+0.85*band(p,0.80,0.995);
+  REVEAL.densify=0.15*band(p,0.58,0.76)+0.85*band(p,0.80,REVEAL_END);
   REVEAL.fly=fly;
   coverUI.style.opacity=1-band(p,0.0,0.16);
   coverEdge.style.opacity=(1-band(p,0.26,0.96))*(REVEAL.letters?0.85:1);
   if(REVEAL.letters){
-    // sequenced handoff, scrubbed both ways: the DOM card is gone BEFORE the
-    // splat copy is distinguishable — imperfect registration can never
-    // double-expose. Scroll back and the DOM card returns the same way.
-    coverIn.style.opacity=1-band(p,0.015,0.050);
-    coverBase.style.opacity=1-band(p,0.025,0.30);
-    REVEAL.letterA=band(p,0.055,0.105);
+    // THE DARK CARD GOES FIRST, AND EARLY. The splat copy is drawn on the
+    // canvas UNDERNEATH it, so while the card is up there is nothing to hand
+    // over to: measured, the old schedule left the title invisible from p=0.04
+    // to p=0.11 and only back to full strength at p=0.30 — which is the "it
+    // fades passage of time and renews it". The card can leave this early
+    // because it dissolves into the dark SKY, which is the same near-black:
+    // backdrop luminance measured 9.5 behind the card and 9.8 without it.
+    coverBase.style.opacity=1-band(p,0.010,0.042);
+    // Then the two copies CROSS-fade, ~130ms, no gap. They were sequenced
+    // because registration could not be trusted; it now measures within 1px on
+    // every edge at dpr 1, 1.25 and 2, so overlapping them reads as one word
+    // resolving into grain rather than as two words swapping over.
+    coverIn.style.opacity=1-band(p,0.048,0.058);
+    REVEAL.letterA=band(p,0.048,0.058);
   }else{                                // still downloading: DOM card carries it
     coverIn.style.opacity=1-band(p,0.02,0.46);
     coverBase.style.opacity=1-band(p,0.06,0.62);
@@ -824,9 +838,13 @@ function stepReveal(dt){
     off.setLength(HOME_DIST*(1+0.34*(1-ease(p))));
     camera.position.copy(controls.target).add(off);
   }
-  // >0.99, not >=1: an eased programmatic scroll lands on a subpixel offset,
-  // so an exact test left the cover invisible but never committed.
-  if(p>0.99&&REVEAL.raw>0.99) commitReveal();
+  // The moment the densify ramp tops out there is nothing left to reveal, so
+  // do not spend the tail of the runway easing towards a picture that is
+  // already on screen — commit. (It used to wait for p>0.99, which on the
+  // streaming clock was another two seconds of watching a finished tree.)
+  // The cover's own fades are complete by here too: the edge vignette is at
+  // 0.5% opacity and the sky has been fully lit since 0.86.
+  if(p>REVEAL_END&&REVEAL.raw>REVEAL_END) commitReveal();
 }
 // WATCHDOG: bottom of the runway MUST equal commit. If raw sits pinned at
 // the end for a quarter second and the smoothed path somehow hasn't fired
@@ -2086,6 +2104,13 @@ fileEl.onchange=()=>{
   setMusicCredit(f.name);
   document.getElementById('sound').classList.remove('show');  // their track is the music now
   useAudio(URL.createObjectURL(f),f.name,true);
+  // and read ITS tempo, so ♪ pace means their music and not ours. Decoded
+  // into a 16kHz mono context: beat spacing survives that intact, and a long
+  // track then costs a few MB instead of a few hundred.
+  trackBPM=0; trackPulse=0; trackDrive=0;
+  f.arrayBuffer()
+   .then(ab=>new OfflineAudioContext(1,1,16000).decodeAudioData(ab))
+   .then(b=>setTrackTempo(b,0)).catch(()=>{});
 };
 // PLAY/PAUSE — and the mini play in the folded row is this same handler.
 // RESUME MEANS RESUME: the playhead only ever moves here for a COLD start
@@ -2582,7 +2607,7 @@ function choreoPhase(ct){
 // choice still wins. It only ever scales the CAMERA's spin — the year clock
 // and the summer landing are untouched, so there is no winter jump in here.
 const PACE_KEY='potPace';
-let paceSpin=true, paceSmooth=1.0, paceRef=0;
+let paceSpin=true, paceSmooth=1.0;
 const paceBtn=document.getElementById('pacespin');
 try{ const s=localStorage.getItem(PACE_KEY); if(s!==null) paceSpin=s==='1'; }catch(e){}
 paceBtn.classList.toggle('on',paceSpin);
@@ -2599,6 +2624,88 @@ function paceAt(ct){
     }
   }
   return pc[pc.length-1][1];
+}
+
+// ---- HOW FAST IS THIS MUSIC, ACTUALLY? -----------------------------------
+// Measured ONCE per track off the decoded waveform, not every frame off the
+// analyser. The previous cut compared the analyser's energy with its OWN
+// eleven-second average, and that can never say "this track is faster than
+// that one": whatever you load, the ratio settles back on 1.0 inside ten
+// seconds and the button goes quiet again — which is exactly what it did.
+// This is absolute. An onset envelope in the log domain (so a quiet mix and a
+// loud one read the same), autocorrelated for the beat period: 150bpm stays
+// 150bpm for as long as it plays, and 70bpm stays 70bpm next to it.
+let trackBPM=0, trackPulse=0, trackDrive=0;      // 0 = nothing measured yet
+function measureTempo(buf,from){
+  const sr=buf.sampleRate, ch=buf.getChannelData(0);
+  const start=Math.max(0,Math.min(ch.length,Math.round((from||0)*sr)));
+  // 90s is more than enough to place a beat and keeps this under ~20ms even
+  // on a phone; it runs in idle time so the reveal never feels it
+  const span=Math.min(ch.length-start,Math.round(90*sr));
+  if(span<sr*6) return null;                     // too little to judge
+  const HOP=Math.max(64,Math.round(sr/172)), FR=sr/HOP;   // ~172 frames/sec
+  const n=Math.floor(span/HOP)-1;
+  const env=new Float32Array(n);
+  for(let i=0;i<n;i++){
+    let s=0,c=0; const o=start+i*HOP, e=Math.min(ch.length,o+HOP*2);
+    for(let k=o;k<e;k+=2){ const v=ch[k]; s+=v*v; c++; }   // every other sample
+    // log loudness, not raw power: onsets then measure the SHAPE of the
+    // rhythm rather than how hard the track was mastered
+    env[i]=Math.log(1+400*Math.sqrt(s/(c||1)));
+  }
+  const raw=new Float32Array(n), on=new Float32Array(n);
+  let mean=0;
+  for(let i=1;i<n;i++){ raw[i]=Math.max(0,env[i]-env[i-1]); mean+=raw[i]; }
+  mean/=Math.max(1,n-1);
+  // blur the onset train before correlating it. A click is one frame wide and
+  // beats do not land on frame boundaries, so an unblurred train correlates
+  // BETTER at twice its own period than at its period — which is precisely how
+  // a 150bpm test track came back reading 75.
+  let rms=0;
+  for(let i=1;i<n-1;i++){
+    on[i]=Math.max(0,0.25*raw[i-1]+0.5*raw[i]+0.25*raw[i+1]-mean);
+    rms+=on[i]*on[i];
+  }
+  rms=Math.sqrt(rms/n)||1e-6;
+  for(let i=0;i<n;i++) on[i]/=rms;
+  // autocorrelate the onset train. A log-normal prior around 105bpm settles
+  // the octave question — a pulse and its own half-speed correlate almost
+  // equally well, and ears pick the one nearer walking speed. Checked against
+  // five real recordings (techno, house, pop, a piano cover): their readings
+  // do not move at all as this prior is swung between 100 and 130, so it is
+  // only ever deciding the genuinely ambiguous cases. 105 is where the bundled
+  // waltz comes out at its true ~80bpm instead of its quaver figuration.
+  const lagMin=Math.max(2,Math.round(FR*60/210)), lagMax=Math.round(FR*60/52);
+  let best=0,bestLag=0,acSum=0,acN=0;
+  for(let lag=lagMin;lag<=lagMax;lag++){
+    let s=0; for(let i=lag;i<n;i++) s+=on[i]*on[i-lag];
+    s/=(n-lag);
+    const v=s*Math.exp(-0.5*Math.pow(Math.log2((60*FR/lag)/105)/0.8,2));
+    acSum+=v; acN++;
+    if(v>best){ best=v; bestLag=lag; }
+  }
+  if(!bestLag) return null;
+  // how many onsets a second, regardless of whether they form a grid —
+  // an ambient wash and a drum track can share a bpm and not a pulse
+  let peaks=0,last=-1e9;
+  for(let i=1;i<n-1;i++)
+    if(on[i]>1.7&&on[i]>=on[i-1]&&on[i]>on[i+1]&&(i-last)>FR*0.11){ peaks++; last=i; }
+  return {bpm:60*FR/bestLag, pulse:best/((acSum/acN)||1e-6), drive:peaks/(n/FR)};
+}
+// Runs on whatever is already decoded: the score is decoded for the overture
+// anyway, and a visitor's own file is right there in the picker.
+function setTrackTempo(buf,from){
+  const idle=window.requestIdleCallback||(f=>setTimeout(f,120));
+  idle(()=>{ try{ const m=measureTempo(buf,from);
+    if(m){ trackBPM=m.bpm; trackPulse=m.pulse; trackDrive=m.drive; } }catch(e){} });
+}
+// bpm -> spin multiplier, in OCTAVES: 56 and 224 sit the same distance either
+// side of the neutral 112, where the slider's own rate is left alone. ~70 lands
+// near 0.66x, ~150 near 1.31x — a doubling across the range you actually meet,
+// which is a gear change you can see, and it does not wash out.
+function paceFromBPM(bpm){
+  const o=Math.log2(Math.max(40,Math.min(240,bpm))/112);
+  return Math.max(0.6,Math.min(1.6,Math.pow(2,o*0.9)));
 }
 
 choreoSel.onchange=async()=>{
@@ -2865,28 +2972,45 @@ function stepScene(dt){
   } else {
     let sp=parseFloat(spinEl.value);
     if(paceSpin&&audioEl&&!audioEl.paused){
-      // music's local tempo scales the spin: languid passages drift,
-      // driving passages whip. smoothed so it glides, never jerks.
-      // With a choreography loaded that curve is the authority; on the default
-      // free path there is none, so the LIVE energy stands in — otherwise
-      // "pace on" was a lit button that did nothing at all.
-      // Measured against its OWN slow average, not an absolute level: the
-      // first cut read 0.7 flat off this recording and simply pinned the spin
-      // at double speed. Relative, it sits centred on the slider's value and
-      // drifts either side of it with the music — and it self-calibrates to
-      // whatever track someone loads.
+      // The track's MEASURED tempo sets the gear; the music's moment-to-moment
+      // dynamics ride on top of it as a breath. A choreography, when one is
+      // loaded, outranks both — it was authored against this recording.
       let target=1.0;
       if(choreo&&choreo.pace) target=0.25+paceAt(audioEl.currentTime)*2.2;
       else if(reactive){
-        if(paceRef<=0) paceRef=Math.max(0.02,tempo);
-        paceRef+=(tempo-paceRef)*(1-Math.exp(-dt*0.09));      // ~11s memory
-        // narrow band on purpose: the score opens on a long swell, so the
-        // ratio runs high for the first minute whatever the memory length.
-        // 0.65x-1.4x is a drift you feel rather than a gear change.
-        target=Math.max(0.65,Math.min(1.4,0.55+0.45*(tempo/Math.max(0.02,paceRef))));
+        if(trackBPM>0){
+          // trust it in proportion to how clear the pulse is. Measured: the
+          // bundled piano cover sits at 1.5, real beat-driven records at
+          // 2.1-5.3, so this really does separate "has a beat" from "does not".
+          const k=Math.max(0,Math.min(1,(trackPulse-1.2)/2.0));
+          // dense playing reads quicker than the grid alone says — but only
+          // where there IS a grid, or a busy rubato passage counts as speed
+          let gear=paceFromBPM(trackBPM)
+            *(1+0.10*k*Math.max(-1,Math.min(1,(trackDrive-2.2)/2.2)));
+          // MUSIC WITH NO DISCERNIBLE PULSE DRIFTS. A rubato solo piano is not
+          // a fast piece however many notes are in it, and its autocorrelation
+          // is flat enough that the winning peak is half guesswork — so an
+          // unclear reading settles just under the slider's rate instead of
+          // acting on that guess. It is also why the bundled score cannot end
+          // up hurried by a decoder picking a different peak.
+          target=0.85+(gear-0.85)*(0.45+0.55*k);
+        } else {
+          // nothing decoded (a mic, or a file we could not read): absolute
+          // energy — never energy against its own average, which is the trap
+          // this control fell into and always drifts back to doing nothing
+          target=0.72+tempo*1.15;
+        }
+        // the breath: a dynamic swell adds up to ~18% ON TOP of the gear,
+        // so the turn still moves with the playing without redefining it
+        target*=1+0.18*Math.min(1,beatEnv);
       }
+      target=Math.max(0.55,Math.min(1.75,target));
       paceSmooth+=(target-paceSmooth)*(1-Math.exp(-dt*1.6));
       sp*=paceSmooth;
+      // hard ceiling: no music may push the turn past a 25s orbit. A visitor
+      // who has deliberately dragged the slider past that keeps their choice.
+      const cap=Math.max(2.4,Math.abs(parseFloat(spinEl.value)));
+      if(Math.abs(sp)>cap) sp=cap*Math.sign(sp);
     }
     controls.autoRotateSpeed=sp;
   }
@@ -2926,6 +3050,9 @@ fetch(TRACK).then(r=>r.arrayBuffer()).then(async ab=>{
   // but a WebAudio buffer on an ALREADY-RUNNING context does not — that is
   // the overture path in startScore when autoplay is refused.
   try{ const ctx=ensureCtx(); scoreBuf=await ctx.decodeAudioData(ab.slice(0)); }catch(e){}
+  // and while it is decoded, take the score's own tempo — measured from the
+  // cue, so the dead air at the head is not read as a very slow track
+  if(scoreBuf&&!userTrack) setTrackTempo(scoreBuf,SCORE_IN);
 }).catch(()=>{});
 const soundBtn=document.getElementById('sound');
 setPlay(false);                       // the year holds still behind the cover
@@ -3115,7 +3242,9 @@ window.__pot={REVEAL,camera,controls,renderer,geos:[gW,gL],
     heat:+skyMat.uniforms.uHeat.value.toFixed(3)};},
   get auto(){return !!autoScroll;},
   get pace(){return {on:paceSpin,tempo:+tempo.toFixed(3),smooth:+paceSmooth.toFixed(3),
-    spin:+controls.autoRotateSpeed.toFixed(3)};},
+    spin:+controls.autoRotateSpeed.toFixed(3),bpm:+trackBPM.toFixed(1),
+    pulse:+trackPulse.toFixed(2),drive:+trackDrive.toFixed(2),
+    gear:trackBPM?+paceFromBPM(trackBPM).toFixed(3):null};},
   get audio(){return audioEl;},
   get analyser(){return analyser;},      // checks listen through this
   get cue(){return SCORE_IN;},
