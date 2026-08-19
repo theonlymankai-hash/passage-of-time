@@ -33,15 +33,6 @@
      is its intrinsic size, so the last one CLIPPED at the edge instead of
      shrinking or wrapping. Letting them shrink keeps every control reachable. */
   .row input[type=range]{min-width:44px;flex-shrink:1}
-  /* narrow embeds (dashboard tile): tighten so more fits per row */
-  @media (max-width:1000px){
-    #ui{padding:8px 10px 10px;gap:6px}
-    .row{gap:6px}
-    button{padding:5px 8px;font-size:11px}
-    select{padding:5px 6px;font-size:11px}
-    .lbl{min-width:56px;font-size:11px}
-    #density{width:110px}
-  }
   #season{flex:1;accent-color:#8bc34a}
   #density{width:150px;accent-color:#6aa9d8}
   .lbl{min-width:70px;text-align:center;font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:12px}
@@ -51,6 +42,18 @@
   select{background:#1d2530;color:#cfd6df;border:1px solid #3a4656;border-radius:4px;padding:6px 8px;font-size:12px}
   button.on{background:#3a5a2e;border-color:#5d8a48}
   #hint{position:fixed;top:10px;left:14px;opacity:.55}
+  /* Narrow screens (phone, dashboard tile): tighten so the bar covers less of
+     the tree. MUST sit after the base button/select/.lbl rules above — a media
+     query adds no specificity, so when this block was declared before them the
+     later base rules won and every size here was silently dead. */
+  @media (max-width:1000px){
+    #ui{padding:8px 10px 10px;gap:6px}
+    .row{gap:6px}
+    button{padding:5px 8px;font-size:11px}
+    select{padding:5px 6px;font-size:11px}
+    .lbl{min-width:56px;font-size:11px}
+    #density{width:110px}
+  }
   /* the canvas is appended AFTER these in DOM order and became position:fixed
      for the cover — without a z-index it painted on top of the control bar and
      swallowed its clicks. Lift them, and keep them out of the cover: they
