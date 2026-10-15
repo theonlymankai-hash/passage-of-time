@@ -5,6 +5,3 @@ assets/_orig/
 *.log
 node_modules/
 video_*.mp4
-shots/renders/
-shots/out/
-__pycache__/

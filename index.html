@@ -2811,7 +2811,6 @@ let worldT=0;      // seconds since commit — drives the late-world sweep
 // Premiere as an image sequence, or transcode to ProRes:
 //   ffmpeg -framerate 30 -i frame_%05d.png -c:v prores_ks -profile:v 3 out.mov
 let exporting=false;
-const SHOT={on:false,i:0,data:null,progress:-1,done:false};   // ?shot= render state
 document.getElementById('seq').onclick=async(e)=>{
   if(exporting){ exporting=false; return; }
   if(!window.showDirectoryPicker){ alert('Needs Chrome/Edge (File System Access API).'); return; }
@@ -2934,9 +2933,6 @@ function stepScene(dt){
     const rate = (audioOn&&reactive) ? 0.35+tempo*2.6 : 1.0;
     if(playing&&!exporting){elapsed+=dt*rate; t=phaseAt(elapsed); slider.value=t;}
   }
-  // ?shot= render: season and the beat pulse come from the authored timeline
-  // (timeline phase is cumulative so the year can wrap; shaders want 0..5)
-  if(SHOT.on){ t=SHOT.data.f.phase[SHOT.i]%5; audio=SHOT.data.f.audio[SHOT.i]; }
   if(audioEl && !seeking){
     apos.value=audioEl.currentTime;
     atime.textContent=fmt(audioEl.currentTime)+' / '+fmt(audioEl.duration);
@@ -3139,13 +3135,6 @@ function stepScene(dt){
     controls.autoRotateSpeed=sp*spinGain(dt);
   }
   controls.update();
-  if(SHOT.on){
-    // the authored camera wins over everything the orbit controls did above
-    const F=SHOT.data.f, i=SHOT.i, th=F.theta[i], r=F.dist[i];
-    controls.target.set(C[0],F.tgtY[i],C[2]);
-    camera.position.set(C[0]+r*Math.sin(th),F.camY[i],C[2]+r*Math.cos(th));
-    camera.lookAt(controls.target);
-  }
   renderer.render(scene,camera);
 }
 loop();
@@ -3400,62 +3389,6 @@ window.__pot={REVEAL,camera,controls,renderer,geos:[gW,gL],
     dur:audioEl&&isFinite(audioEl.duration)?+audioEl.duration.toFixed(2):null,
     reactive:!!(analyser&&audioOn),vol:masterGain?+masterGain.gain.value.toFixed(2):null};},
   get wheel(){return {hold:wheelHold,last:lastWheelT,avgDt};}};
-
-// ---- ?shot=<name> : deterministic, music-locked render --------------------
-// Plays shots/<name>.json (authored by shots/gen_shot.py) one frame at a time
-// and POSTs each PNG to shots/render_server.py, which writes it to disk — no
-// directory picker, no screen capture, frame-exact. Nothing happens without
-// the URL param. &frames=0,200,400 renders only those (preview stills).
-{
-  const qs=new URLSearchParams(location.search), name=qs.get('shot');
-  if(name) (async()=>{
-    const S=SHOT.data=await (await fetch('shots/'+name+'.json?v='+Date.now())).json();
-    while(!(LW.done&&LL.done)) await new Promise(r=>setTimeout(r,250));
-    commitReveal();
-    REVEAL.densify=1; worldT=99;
-    for(const m of mats){ m.uniforms.uPart.value=-1; m.uniforms.uFly.value=1;
-      m.uniforms.uLoose.value=0; if(m.uniforms.uLetterA) m.uniforms.uLetterA.value=0; }
-    document.getElementById('stormwhen').value='off';   // four clean seasons
-    setUI(false); setPlay(false); exporting=true; homeGlide=0;
-    controls.autoRotate=false; controls.enableDamping=false;
-    renderer.setPixelRatio(1); renderer.setSize(S.w,S.h,false);
-    camera.aspect=S.w/S.h; camera.updateProjectionMatrix();
-    SHOT.on=true;
-    const from=+(qs.get('from')||0);           // resume a partial render
-    const list=qs.get('frames')?qs.get('frames').split(',').map(Number)
-                              :[...Array(S.frames).keys()].filter(i=>i>=from);
-    // settle the wind/gust smoothers so frame 0 is already in its steady state
-    SHOT.i=0; for(let k=0;k<90;k++) stepScene(1/S.fps);
-    // resuming: REPLAY the skipped frames unsaved — wind sway, birds and snow
-    // integrate per step, so jumping straight to `from` would pop at the seam
-    if(!qs.get('frames')) for(let k=0;k<from;k++){ SHOT.i=k; stepScene(1/S.fps); }
-    const tag=qs.get('out')||name;
-    for(const f of list){
-      try{
-        SHOT.i=f; stepScene(1/S.fps);
-        // toDataURL, not toBlob: toBlob's callback rides the compositor, which a
-        // long headless run starves — frame 197 of the first full render simply
-        // never called back. The sync read can't hang.
-        const png=renderer.domElement.toDataURL('image/png');
-        // a local POST occasionally drops (one in a few hundred) — retry it
-        for(let tries=0;;tries++){
-          try{ const r=await fetch('/frame?out='+encodeURIComponent(tag)+'&n='+f,
-                 {method:'POST',body:png}); if(r.ok) break; }
-          catch(e){ if(tries>=6) throw e; }
-          await new Promise(r=>setTimeout(r,300*(tries+1)));
-        }
-      }catch(err){
-        // headless has no console we can see: report to the server and stop
-        await fetch('/log?out='+encodeURIComponent(tag),{method:'POST',
-          body:'frame '+f+': '+(err&&err.stack||err)});
-        throw err;
-      }
-      SHOT.progress=f; document.title='shot '+f+'/'+S.frames;
-    }
-    await fetch('/done?out='+encodeURIComponent(tag),{method:'POST'});
-    SHOT.done=true; document.title='shot done';
-  })();
-}
 </script>
 </body>
 </html>
